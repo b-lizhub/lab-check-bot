@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Consent complete</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; background: #0b1220; color: #e6ecf5;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; text-align: center; }
+    .card { background: #131c2e; border: 1px solid #243049; border-radius: 14px; padding: 28px 32px; max-width: 480px; }
+    h1 { margin: 0 0 8px; font-size: 1.2rem; }
+    p { margin: 0; color: #93a3bf; font-size: 0.92rem; line-height: 1.5; }
+    .err { color: #f25a5a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">✅ Consent recorded</h1>
+    <p id="msg">You can close this tab and return to Lab Check Bot, then click <strong>Run checks</strong> again.</p>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const err = params.get("error") || params.get("error_description");
+    if (err) {
+      document.getElementById("title").textContent = "⚠️ Consent failed";
+      document.getElementById("title").classList.add("err");
+      document.getElementById("msg").textContent = decodeURIComponent(err);
+    }
+  </script>
+</body>
+</html>
