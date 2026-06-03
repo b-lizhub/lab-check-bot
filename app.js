@@ -130,15 +130,15 @@
         };
       }
     }
-    // GitHub Pages: <owner>.github.io/<repo>/...  →  treat as the repo root.
-    // Org/user pages without a repo segment (<owner>.github.io/) aren't supported.
+    // GitHub Pages: <owner>.github.io/<repo>[/...] → load the backing repo.
+    // User/org root site (<owner>.github.io with no path) maps to the
+    // special <owner>.github.io repo.
     if (url.hostname.endsWith(".github.io")) {
       const owner = url.hostname.slice(0, -".github.io".length);
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts.length >= 1) {
-        return { kind: "tree", owner, repo: parts[0], ref: "HEAD", path: "" };
-      }
-      return null;
+      if (!owner) return null;
+      const pageParts = url.pathname.split("/").filter(Boolean);
+      const repo = pageParts[0] || `${owner}.github.io`;
+      return { kind: "tree", owner, repo, ref: "HEAD", path: "" };
     }
     if (url.hostname !== "github.com" && !url.hostname.endsWith(".github.com")) {
       return null;
@@ -238,7 +238,7 @@
   async function fetchLab(input) {
     const parsed = parseGitHubUrl(input);
     if (!parsed) {
-      throw new Error("Could not understand that URL. Use a github.com link.");
+      throw new Error("Could not understand that URL. Use a github.com or *.github.io link.");
     }
     if (parsed.kind === "blob") {
       const ref = parsed.ref && parsed.ref !== "HEAD" ? parsed.ref : "HEAD";
@@ -782,6 +782,48 @@
     return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   }
 
+  // For a failing/warning check, surface the lab step(s) the user was supposed
+  // to perform. Pure regex / token-overlap matching against parsed lab.steps —
+  // no LLM, no Graph follow-up. Returns up to `limit` step strings (snippets).
+  function findRelevantSteps(result, labObj, limit = 3) {
+    if (!labObj || !Array.isArray(labObj.steps) || labObj.steps.length === 0) return [];
+
+    // Search terms come from:
+    //  1. Quoted strings in the check name/msg ("Invoice Processing Agent")
+    //  2. Significant tokens from the check name (drops portal stopwords)
+    //  3. Detected named items (agents, pools) if the check id mentions them
+    const haystack = `${result.name || ""} ${result.msg || ""}`;
+    const phrases = [];
+    const phraseRe = /"([^"]+)"|“([^”]+)”/g;
+    let m;
+    while ((m = phraseRe.exec(haystack))) {
+      const p = (m[1] || m[2] || "").trim();
+      if (p.length >= 3) phrases.push(p);
+    }
+    const tokens = new Set(significantTokens(result.name || ""));
+    // Names referenced by id (e.g. cs-agent-<slug>)
+    const named = [
+      ...(labObj.names?.agents || []),
+      ...(labObj.names?.pools || []),
+    ];
+    for (const n of named) {
+      if (result.id && result.id.includes(slug(n))) phrases.push(n);
+    }
+    if (phrases.length === 0 && tokens.size === 0) return [];
+
+    const phrasesLower = phrases.map((p) => p.toLowerCase());
+    const scored = [];
+    labObj.steps.forEach((step, idx) => {
+      const lower = step.toLowerCase();
+      let score = 0;
+      for (const p of phrasesLower) if (lower.includes(p)) score += 5;
+      for (const t of tokens) if (lower.includes(t)) score += 1;
+      if (score > 0) scored.push({ idx, step, score });
+    });
+    scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+    return scored.slice(0, limit).map((s) => s.step);
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // Rendering
   // ──────────────────────────────────────────────────────────────────────────
@@ -843,11 +885,25 @@
       const actionHtml = r.action
         ? `<button class="secondary" data-action="${escape(r.action.handler)}" style="margin-top:6px;">${escape(r.action.label)}</button>`
         : "";
+      // For non-pass results, try to pull the matching lab step(s) so the user
+      // sees exactly what they were supposed to do.
+      let hintHtml = "";
+      if (r.status === "fail" || r.status === "warn") {
+        const hints = findRelevantSteps(r, lab);
+        if (hints.length) {
+          hintHtml =
+            `<details class="hint" style="margin-top:8px;">` +
+            `<summary style="cursor:pointer;color:var(--accent-2);">📖 What the lab says to do (${hints.length})</summary>` +
+            `<ul style="margin:6px 0 0 1.1rem;padding:0;">` +
+            hints.map((h) => `<li style="margin:4px 0;">${escape(h)}</li>`).join("") +
+            `</ul></details>`;
+        }
+      }
       row.innerHTML = `
         <span class="pill ${pillClass(r.status)}">${pillLabel(r.status)}</span>
         <span class="name">${escape(r.name)}</span>
         <span></span>
-        <span class="msg">${escape(r.msg || "")}${actionHtml ? "<br>" + actionHtml : ""}</span>
+        <span class="msg">${escape(r.msg || "")}${actionHtml ? "<br>" + actionHtml : ""}${hintHtml}</span>
       `;
       list.appendChild(row);
     });
