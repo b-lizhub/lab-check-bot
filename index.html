@@ -195,12 +195,28 @@
 <body>
   <header>
     <h1>🤖 Lab Check Bot</h1>
-    <p>Sign into your tenant and check whether a GitHub-hosted lab has already been completed.</p>
+    <p>This Lab Check Bot verifies that you've completed the lab steps for a technical lab. All you need is the link to the lab's GitHub repo, and then follow the steps.</p>
   </header>
 
   <main>
     <div id="error-banner" class="error-banner hidden"></div>
     <div id="info-banner" class="info-banner hidden"></div>
+
+    <!-- How to use -->
+    <details class="panel" style="margin-bottom: 16px;">
+      <summary style="cursor:pointer;font-weight:600;font-size:1.05rem;">How to use this tool</summary>
+      <ol style="margin-top:10px;line-height:1.5;">
+        <li><strong>Paste a GitHub lab URL.</strong> Anything works: a repo root, a <code>/tree/main/docs/...</code> folder, a single <code>.md</code> file, or a published GitHub Pages site (<code>*.github.io/...</code>).</li>
+        <li><strong>Sign in with a Global Administrator account</strong> in the tenant you want to check. All checks run in your browser — no data leaves your machine.</li>
+        <li><strong>First time in a tenant?</strong> Expand <em>"First time in this tenant? Grant admin consent"</em> and click <strong>🔓 Grant admin consent for this tenant</strong>. A GA accepts the read-only Graph permissions once per tenant; after that, every user in that tenant just signs in.</li>
+        <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals it touches (Copilot Studio, Intune, Entra, etc.) and any named items (agents, pools), then queries Microsoft Graph + Power Platform to see what's already in place.</li>
+        <li><strong>Review results.</strong> Each row is <strong>PASS / WARN / FAIL / SKIP</strong>. For any FAIL or WARN, expand <strong>📖 What the lab says to do</strong> to see the exact lab step(s) you were supposed to complete.</li>
+      </ol>
+      <p class="muted" style="margin-top:10px;font-size:0.85rem;">
+        Copilot Studio agent verification requires one extra one-time Dataverse consent. Skip it and agent checks become "manual verify" links — no consent loop, just less automation.
+        The lab text never leaves your browser; the bot only calls <code>api.github.com</code>, <code>raw.githubusercontent.com</code>, <code>graph.microsoft.com</code>, and (optionally) Dataverse for your tenant.
+      </p>
+    </details>
 
     <!-- Step 1: Lab URL -->
     <div class="panel" id="panel-lab">
