@@ -437,11 +437,11 @@
     msalInstance.logoutRedirect({ postLogoutRedirectUri: REDIRECT_URI });
   }
 
-  async function getToken(scopes) {
+  async function getToken(scopes, { forceRefresh = false } = {}) {
     const inst = await getMsal();
     const account = getActiveAccount();
     if (!account) throw new Error("Not signed in.");
-    const resp = await inst.acquireTokenSilent({ scopes, account });
+    const resp = await inst.acquireTokenSilent({ scopes, account, forceRefresh });
     return resp.accessToken;
   }
 
@@ -449,9 +449,9 @@
   // Tenant checks
   // ──────────────────────────────────────────────────────────────────────────
 
-  async function graphGet(path, beta = false) {
-    const token = await getToken(["https://graph.microsoft.com/.default"]).catch(
-      async () => getToken(GRAPH_SCOPES)
+  async function graphGet(path, beta = false, { forceRefresh = false } = {}) {
+    const token = await getToken(["https://graph.microsoft.com/.default"], { forceRefresh }).catch(
+      async () => getToken(GRAPH_SCOPES, { forceRefresh })
     );
     const base = beta
       ? "https://graph.microsoft.com/beta"
@@ -998,13 +998,13 @@
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&state=lab-check-bot-graph`;
     showInfo(
-      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and click 'Re-check status'."
+      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and click 'Re-check status' (or sign out and back in if it still shows Not granted)."
     );
     window.open(url, "_blank", "noopener");
   });
 
   $("btn-check-consent").addEventListener("click", () => {
-    refreshConsentStatus({ force: true });
+    refreshConsentStatus({ forceRefresh: true });
   });
 
   $("btn-run").addEventListener("click", async () => {
@@ -1122,7 +1122,7 @@
     if (sub) status.textContent = sub;
   }
 
-  async function refreshConsentStatus({ force = false } = {}) {
+  async function refreshConsentStatus({ forceRefresh = false } = {}) {
     const account = getActiveAccount();
     if (!account) {
       setConsentUi(
@@ -1134,25 +1134,28 @@
     setConsentUi("checking", "Checking whether admin consent is already granted for this tenant…");
     try {
       // /applications requires Application.Read.All — fails with 403 if no consent.
-      await graphGet("/applications?$top=1&$select=id");
+      // forceRefresh bypasses the MSAL access-token cache so a freshly-consented
+      // tenant doesn't keep returning the old token (which lacked the scopes).
+      await graphGet("/applications?$top=1&$select=id", false, { forceRefresh });
       setConsentUi(
         "granted",
         "Admin consent is in place for this tenant. You're ready to run checks."
       );
     } catch (e) {
       const msg = String(e.message || e);
-      // 403 = missing consent. Other errors (network, MSAL silent failure) we
-      // also treat as "probably missing" but with a softer copy.
       const looksLikeConsent =
         /403/.test(msg) || /consent/i.test(msg) || /insufficient/i.test(msg) || /interaction_required/i.test(msg);
+      // If we *didn't* force-refresh and the silent token came back stale, the
+      // user's session still holds the pre-consent token. Tell them to re-sign-in.
+      const stale = !forceRefresh && looksLikeConsent;
       setConsentUi(
         "missing",
         looksLikeConsent
-          ? "Admin consent has not been granted for this tenant yet. A Global Administrator should click the button below."
+          ? (stale
+              ? "Looks like admin consent isn't reflected in your current session. If a GA just clicked Accept, click 'Re-check status' (forces a token refresh) — or sign out and back in."
+              : "Admin consent has not been granted for this tenant yet. A Global Administrator should click the button below.")
           : `Could not verify consent (${msg}). Try the button below, or 'Re-check status'.`
       );
-      // Don't surface as a top-level error — the card is the signal.
-      if (!force) return;
     }
   }
 })();
