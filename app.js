@@ -998,9 +998,13 @@
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&state=lab-check-bot-graph`;
     showInfo(
-      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and sign in."
+      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and click 'Re-check status'."
     );
     window.open(url, "_blank", "noopener");
+  });
+
+  $("btn-check-consent").addEventListener("click", () => {
+    refreshConsentStatus({ force: true });
   });
 
   $("btn-run").addEventListener("click", async () => {
@@ -1079,6 +1083,76 @@
         showError("");
         try { await switchTenant(); } catch (e) { showError("Switch tenant: " + (e.message || e)); }
       });
+    }
+    // Check consent status now that we have an account.
+    refreshConsentStatus({ force: false });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Consent status indicator
+  //
+  // Probes a Graph endpoint that requires an admin-consented scope. A 200 means
+  // consent is in place for this tenant; a 403 / insufficient privileges means
+  // it isn't. We only run this when signed in — without an account we just
+  // show "Sign in first" and let the user click the consent button anyway.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function setConsentUi(state, sub) {
+    const card = $("consent-card");
+    const pill = $("consent-pill");
+    const status = $("consent-status");
+    if (!card || !pill || !status) return;
+    card.classList.remove("granted", "missing");
+    pill.classList.remove("pass", "fail", "warn", "info");
+    if (state === "granted") {
+      card.classList.add("granted");
+      pill.classList.add("pass");
+      pill.textContent = "✅ Granted";
+    } else if (state === "missing") {
+      card.classList.add("missing");
+      pill.classList.add("fail");
+      pill.textContent = "❌ Not granted";
+    } else if (state === "checking") {
+      pill.classList.add("info");
+      pill.textContent = "Checking…";
+    } else {
+      pill.classList.add("info");
+      pill.textContent = "Sign in first";
+    }
+    if (sub) status.textContent = sub;
+  }
+
+  async function refreshConsentStatus({ force = false } = {}) {
+    const account = getActiveAccount();
+    if (!account) {
+      setConsentUi(
+        "unknown",
+        "Sign in above first, then we can verify whether your tenant has already granted consent."
+      );
+      return;
+    }
+    setConsentUi("checking", "Checking whether admin consent is already granted for this tenant…");
+    try {
+      // /applications requires Application.Read.All — fails with 403 if no consent.
+      await graphGet("/applications?$top=1&$select=id");
+      setConsentUi(
+        "granted",
+        "Admin consent is in place for this tenant. You're ready to run checks."
+      );
+    } catch (e) {
+      const msg = String(e.message || e);
+      // 403 = missing consent. Other errors (network, MSAL silent failure) we
+      // also treat as "probably missing" but with a softer copy.
+      const looksLikeConsent =
+        /403/.test(msg) || /consent/i.test(msg) || /insufficient/i.test(msg) || /interaction_required/i.test(msg);
+      setConsentUi(
+        "missing",
+        looksLikeConsent
+          ? "Admin consent has not been granted for this tenant yet. A Global Administrator should click the button below."
+          : `Could not verify consent (${msg}). Try the button below, or 'Re-check status'.`
+      );
+      // Don't surface as a top-level error — the card is the signal.
+      if (!force) return;
     }
   }
 })();

@@ -114,6 +114,37 @@
     .pill.warn { background: rgba(240,180,41,0.15); color: var(--warn); border: 1px solid rgba(240,180,41,0.35); }
     .pill.fail { background: rgba(242,90,90,0.15); color: var(--fail); border: 1px solid rgba(242,90,90,0.35); }
     .pill.info { background: rgba(79,134,255,0.15); color: var(--accent-2); border: 1px solid rgba(79,134,255,0.35); }
+    .consent-card {
+      margin-top: 14px;
+      background: linear-gradient(180deg, rgba(79,134,255,0.10), rgba(79,134,255,0.04));
+      border: 1px solid rgba(79,134,255,0.45);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .consent-card.granted {
+      background: linear-gradient(180deg, rgba(43,191,122,0.10), rgba(43,191,122,0.03));
+      border-color: rgba(43,191,122,0.5);
+    }
+    .consent-card.missing {
+      background: linear-gradient(180deg, rgba(242,90,90,0.10), rgba(242,90,90,0.03));
+      border-color: rgba(242,90,90,0.55);
+    }
+    .consent-card-header {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: start;
+    }
+    .consent-icon { font-size: 1.4rem; line-height: 1.2; }
+    .consent-card-title { font-weight: 600; font-size: 1.0rem; }
+    .consent-card-sub { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+    .consent-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .consent-card.granted .consent-card-actions { display: none; }
     .check {
       display: grid;
       grid-template-columns: auto 1fr auto;
@@ -253,11 +284,22 @@
         <button id="btn-signout" class="secondary hidden">Sign out</button>
         <span id="user-info" class="muted"></span>
       </div>
-      <details style="margin-top: 10px;">
-        <summary class="muted" style="cursor:pointer;">First time in this tenant? Grant admin consent</summary>
-        <p class="muted" style="margin-top:6px;">If sign-in fails with a consent error, a Global Administrator in this tenant clicks the button below once. Opens Microsoft's standard consent page in a new tab — accept it, then come back and sign in.</p>
-        <button id="btn-grant-consent" class="secondary" style="margin-top:6px;">🔓 Grant admin consent for this tenant</button>
-      </details>
+      <div id="consent-card" class="consent-card">
+        <div class="consent-card-header">
+          <span class="consent-icon">🔓</span>
+          <div class="consent-card-title-block">
+            <div class="consent-card-title">Tenant admin consent</div>
+            <div class="consent-card-sub" id="consent-status">
+              Required once per tenant — a Global Admin grants read-only Graph permissions for the bot.
+            </div>
+          </div>
+          <span id="consent-pill" class="pill info">Status: not checked</span>
+        </div>
+        <div class="consent-card-actions">
+          <button id="btn-grant-consent">🔓 Grant admin consent for this tenant</button>
+          <button id="btn-check-consent" class="secondary">Re-check status</button>
+        </div>
+      </div>
     </div>
 
     <!-- Step 3: Parsed lab summary -->
