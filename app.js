@@ -982,6 +982,27 @@
 
   $("btn-signout").addEventListener("click", () => signOut());
 
+  $("btn-grant-consent").addEventListener("click", () => {
+    showError("");
+    // Use /organizations so the user picks (or is already in) any work tenant,
+    // and we don't need a tenant id up front. scope=.default lets AAD prompt
+    // the GA for *all* statically-configured Graph permissions in one shot.
+    const redirectUri =
+      location.origin +
+      location.pathname.replace(/[^/]*$/, "") +
+      "auth-redirect.html";
+    const url =
+      "https://login.microsoftonline.com/organizations/v2.0/adminconsent" +
+      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
+      `&scope=${encodeURIComponent("https://graph.microsoft.com/.default")}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=lab-check-bot-graph`;
+    showInfo(
+      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and sign in."
+    );
+    window.open(url, "_blank", "noopener");
+  });
+
   $("btn-run").addEventListener("click", async () => {
     if (!lab) {
       showError("Load a lab first.");

@@ -237,6 +237,11 @@
         <button id="btn-signout" class="secondary hidden">Sign out</button>
         <span id="user-info" class="muted"></span>
       </div>
+      <details style="margin-top: 10px;">
+        <summary class="muted" style="cursor:pointer;">First time in this tenant? Grant admin consent</summary>
+        <p class="muted" style="margin-top:6px;">If sign-in fails with a consent error, a Global Administrator in this tenant clicks the button below once. Opens Microsoft's standard consent page in a new tab — accept it, then come back and sign in.</p>
+        <button id="btn-grant-consent" class="secondary" style="margin-top:6px;">🔓 Grant admin consent for this tenant</button>
+      </details>
     </div>
 
     <!-- Step 3: Parsed lab summary -->
