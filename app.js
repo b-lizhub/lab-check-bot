@@ -64,7 +64,13 @@
       const raw = localStorage.getItem(LAB_STORAGE_KEY);
       if (!raw) return null;
       const obj = JSON.parse(raw);
-      if (obj && obj.rawText && obj.names) return obj;
+      if (obj && obj.rawText && obj.names) {
+        // Backfill new name buckets so older cached labs don't crash renderLab.
+        obj.names.azure = obj.names.azure || {};
+        obj.names.github = obj.names.github || {};
+        obj.names.ado = obj.names.ado || {};
+        return obj;
+      }
     } catch { /* ignore */ }
     return null;
   }
@@ -271,10 +277,25 @@
     { name: "Power Platform Admin", patterns: [/power\s*platform\s*admin/i, /admin\.powerplatform/i, /power\s*automate/i] },
     { name: "Microsoft Entra", patterns: [/microsoft\s*entra/i, /entra\.microsoft\.com/i, /aad|azure\s*ad\b/i] },
     { name: "Microsoft Intune", patterns: [/intune/i] },
-    { name: "Azure Portal", patterns: [/azure\s*portal/i, /portal\.azure\.com/i, /resource\s*group/i] },
+    { name: "Azure Portal", patterns: [
+        /azure\s*portal/i, /portal\.azure\.com/i, /resource\s*group/i,
+        /app\s*service/i, /container\s*app/i, /function\s*app/i,
+        /azure\s*sql/i, /cosmos\s*db/i, /storage\s*account/i,
+        /key\s*vault/i, /ai\s*foundry/i, /azure\s*openai/i,
+        /log\s*analytics/i, /application\s*insights/i, /\baz\s+\w+/i,
+      ] },
     { name: "Microsoft 365 Admin", patterns: [/microsoft\s*365\s*admin/i, /admin\.microsoft\.com/i] },
     { name: "SharePoint", patterns: [/sharepoint/i] },
     { name: "Teams Admin", patterns: [/teams\s*admin/i] },
+    { name: "GitHub", patterns: [
+        /github\s*enterprise/i, /github\s*copilot/i, /github\s*actions/i,
+        /\bgithub\.com\b/i, /\bgh\s+(?:auth|repo|workflow|run)\b/i,
+        /personal\s*access\s*token/i, /\bpat\b/i,
+      ] },
+    { name: "Azure DevOps", patterns: [
+        /azure\s*devops/i, /\bdev\.azure\.com\b/i, /\bvisualstudio\.com\b/i,
+        /\bado\b/i, /azure\s*pipelines?/i, /azure\s*boards?/i, /azure\s*repos?/i,
+      ] },
   ];
 
   function detectPortals(text) {
@@ -299,6 +320,134 @@
     /(?:^|\s)[`]([A-Za-z][A-Za-z0-9_-]{2,60}(?:Pool|Group))[`]/g,
     /(?:cloud\s*pc\s+pool|machine\s+pool|machine\s+group)\s+named\s+([A-Za-z][A-Za-z0-9_-]{2,60})\b/g,
   ];
+
+  // Azure resource names — looks for `--name foo`, "named foo", or quoted
+  // identifiers next to resource-type keywords.
+  const AZURE_RESOURCE_PATTERNS = {
+    resourceGroups: [
+      /resource\s*group\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9_.-]{2,80})[`*"]+/gi,
+      /--resource-group\s+([A-Za-z][A-Za-z0-9_.-]{2,80})/gi,
+      /\b-g\s+([A-Za-z][A-Za-z0-9_.-]{2,80})/gi,
+    ],
+    appServices: [
+      /(?:app\s*service|web\s*app)\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,60})[`*"]+/gi,
+      /az\s+webapp\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([A-Za-z][A-Za-z0-9-]{2,60})/gi,
+    ],
+    containerApps: [
+      /container\s*app\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,60})[`*"]+/gi,
+      /az\s+containerapp\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([A-Za-z][A-Za-z0-9-]{2,60})/gi,
+    ],
+    functionApps: [
+      /function\s*app\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,60})[`*"]+/gi,
+      /az\s+functionapp\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([A-Za-z][A-Za-z0-9-]{2,60})/gi,
+    ],
+    sqlServers: [
+      /sql\s*server\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,60})[`*"]+/gi,
+      /az\s+sql\s+server\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([A-Za-z][A-Za-z0-9-]{2,60})/gi,
+    ],
+    storageAccounts: [
+      /storage\s*account\s+(?:named\s+)?[`*"]+([a-z0-9]{3,24})[`*"]+/gi,
+      /az\s+storage\s+account\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([a-z0-9]{3,24})/gi,
+    ],
+    keyVaults: [
+      /key\s*vault\s+(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,24})[`*"]+/gi,
+      /az\s+keyvault\s+\w[\w-]*\s+(?:[^\n]*\s+)?--name\s+([A-Za-z][A-Za-z0-9-]{2,24})/gi,
+    ],
+    openAiAccounts: [
+      /(?:azure\s*open\s*ai|ai\s*foundry|cognitive\s*services)\s+(?:account\s+)?(?:named\s+)?[`*"]+([A-Za-z][A-Za-z0-9-]{2,60})[`*"]+/gi,
+    ],
+  };
+
+  // GitHub identifiers: org/repo, gh CLI invocations, github.com URLs.
+  // The negative lookbehind on the URL pattern excludes `docs.github.com`,
+  // `gist.github.com`, etc. so we don't catch documentation paths.
+  const GITHUB_PATTERNS = {
+    repos: [
+      /(?<![A-Za-z0-9.-])github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]{1,100})(?![A-Za-z0-9._-])/g,
+      /\bgh\s+repo\s+(?:create|clone|view|fork)\s+([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]{1,100})\b/g,
+      /(?:fork|clone)\s+[`*"]+([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]{1,100})[`*"]+/gi,
+    ],
+    workflows: [
+      /\.github\/workflows\/([A-Za-z0-9_.-]+\.ya?ml)/g,
+      /workflow\s+(?:named\s+)?[`*"]+([A-Za-z0-9_. -]{3,80})[`*"]+/gi,
+    ],
+  };
+
+  // GitHub docs URL roots like docs.github.com/en/<area>/... should not be
+  // mistaken for real repos. These are the first-segment "areas" we drop.
+  const GITHUB_DOCS_OWNERS = new Set([
+    "en", "fr", "de", "es", "ja", "ko", "zh", "pt", "ru", "it",
+    "account", "actions", "billing", "code-security", "codespaces",
+    "copilot", "desktop", "discussions", "enterprise-cloud", "enterprise-server",
+    "get-started", "git-guides", "graphql", "issues", "manual", "migrations",
+    "organizations", "pages", "pull-requests", "repositories", "rest",
+    "search-github", "site-policy", "support", "webhooks",
+  ]);
+
+  // Azure DevOps identifiers — org URLs and project names. Require 3+ chars
+  // and exclude common docs/path segments so we don't catch e.g. /code, /docs.
+  const ADO_PATTERNS = {
+    orgs: [
+      /\bdev\.azure\.com\/([A-Za-z0-9][A-Za-z0-9-]{2,60})(?=\/|\s|$)/g,
+      /\b([A-Za-z0-9][A-Za-z0-9-]{2,60})\.visualstudio\.com\b/g,
+    ],
+    projects: [
+      /\bdev\.azure\.com\/[A-Za-z0-9][A-Za-z0-9-]{2,60}\/([A-Za-z0-9][A-Za-z0-9 _.-]{2,60}?)(?=\/|\s|$)/g,
+      /(?:azure\s*devops|ado)\s+project\s+(?:named\s+)?[`*"]+([A-Za-z0-9][A-Za-z0-9 _.-]{2,60})[`*"]+/gi,
+    ],
+    pipelines: [
+      /pipeline\s+(?:named\s+)?[`*"]+([A-Za-z0-9][A-Za-z0-9 _.-]{2,80})[`*"]+/gi,
+    ],
+  };
+
+  const ADO_STOPWORDS = new Set([
+    "code", "docs", "boards", "repos", "pipelines", "wiki",
+    "marketplace", "settings", "_git", "_apis", "_build",
+  ]);
+
+  // Stopwords that are too generic to be real resource names.
+  const RESOURCE_STOPWORDS = new Set([
+    "myapp", "mywebapp", "mygroup", "test", "demo", "example", "sample",
+    "your-app", "your-rg", "your-name", "<your-app>", "<your-rg>",
+    "main", "master", "dev", "prod", "production", "staging",
+  ]);
+
+  function extractNamed(text, patternMap) {
+    const result = {};
+    for (const [key, patterns] of Object.entries(patternMap)) {
+      const set = new Set();
+      for (const p of patterns) {
+        p.lastIndex = 0;
+        let m;
+        while ((m = p.exec(text)) !== null) {
+          // If the regex has two capture groups (owner, repo) glue them.
+          let v;
+          if (m.length >= 3 && m[2] !== undefined) {
+            v = `${(m[1] || "").trim()}/${(m[2] || "").trim()}`.replace(/\.git$/, "");
+          } else {
+            v = (m[1] || "").trim();
+          }
+          if (
+            v.length >= 2 &&
+            v.length <= 100 &&
+            !RESOURCE_STOPWORDS.has(v.toLowerCase()) &&
+            !v.startsWith("<")
+          ) {
+            // Repo-specific filter: drop docs.github.com first-segment areas.
+            if (key === "repos" && v.includes("/")) {
+              const owner = v.split("/")[0].toLowerCase();
+              if (GITHUB_DOCS_OWNERS.has(owner)) continue;
+            }
+            // ADO-specific filter: drop common docs/path segments.
+            if ((key === "orgs" || key === "projects") && ADO_STOPWORDS.has(v.toLowerCase())) continue;
+            set.add(v);
+          }
+        }
+      }
+      if (set.size) result[key] = Array.from(set);
+    }
+    return result;
+  }
 
   const AGENT_STOPWORDS = new Set([
     "computer-using agent",
@@ -370,13 +519,17 @@
     const agents = agentsRaw.filter((a) => !AGENT_STOPWORDS.has(a.toLowerCase()));
     const pools = poolsRaw;
 
+    const azure = extractNamed(combined, AZURE_RESOURCE_PATTERNS);
+    const github = extractNamed(combined, GITHUB_PATTERNS);
+    const ado = extractNamed(combined, ADO_PATTERNS);
+
     return {
       title: fetched.title,
       url: fetched.url,
       rawText: combined,
       steps,
       portals,
-      names: { agents, pools },
+      names: { agents, pools, azure, github, ado },
     };
   }
 
@@ -847,21 +1000,42 @@
     }
 
     const named = $("named-items");
-    if (lab.names.agents.length === 0 && lab.names.pools.length === 0) {
-      named.innerHTML = `<p class="muted">No named agents or pools detected.</p>`;
+    const az = lab.names.azure || {};
+    const gh = lab.names.github || {};
+    const ado = lab.names.ado || {};
+    const hasAnyName =
+      lab.names.agents.length ||
+      lab.names.pools.length ||
+      Object.values(az).some((v) => v && v.length) ||
+      Object.values(gh).some((v) => v && v.length) ||
+      Object.values(ado).some((v) => v && v.length);
+    if (!hasAnyName) {
+      named.innerHTML = `<p class="muted">No named resources detected.</p>`;
     } else {
+      const row = (label, items) =>
+        items && items.length
+          ? `<div style="margin-top:6px;"><strong>${escape(label)}:</strong> ${items.map((a) => `<code>${escape(a)}</code>`).join(", ")}</div>`
+          : "";
       const parts = [];
-      if (lab.names.agents.length) {
-        parts.push(
-          `<div><strong>Agents:</strong> ${lab.names.agents.map((a) => `<code>${escape(a)}</code>`).join(", ")}</div>`
-        );
-      }
-      if (lab.names.pools.length) {
-        parts.push(
-          `<div style="margin-top:6px;"><strong>Pools/Groups:</strong> ${lab.names.pools.map((a) => `<code>${escape(a)}</code>`).join(", ")}</div>`
-        );
-      }
-      named.innerHTML = parts.join("");
+      if (lab.names.agents.length) parts.push(row("Agents", lab.names.agents));
+      if (lab.names.pools.length) parts.push(row("Pools/Groups", lab.names.pools));
+      // Azure
+      parts.push(row("Azure resource groups", az.resourceGroups));
+      parts.push(row("Azure App Services / Web Apps", az.appServices));
+      parts.push(row("Azure Container Apps", az.containerApps));
+      parts.push(row("Azure Function Apps", az.functionApps));
+      parts.push(row("Azure SQL servers", az.sqlServers));
+      parts.push(row("Azure Storage accounts", az.storageAccounts));
+      parts.push(row("Azure Key Vaults", az.keyVaults));
+      parts.push(row("Azure OpenAI / AI Foundry", az.openAiAccounts));
+      // GitHub
+      parts.push(row("GitHub repos", gh.repos));
+      parts.push(row("GitHub workflows", gh.workflows));
+      // Azure DevOps
+      parts.push(row("Azure DevOps orgs", ado.orgs));
+      parts.push(row("Azure DevOps projects", ado.projects));
+      parts.push(row("Azure DevOps pipelines", ado.pipelines));
+      named.innerHTML = parts.filter(Boolean).join("");
     }
 
     const list = $("step-list");
