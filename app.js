@@ -1676,18 +1676,26 @@
     window.open(url, "_blank", "noopener");
   });
 
-  $("btn-check-consent").addEventListener("click", () => {
+  $("btn-check-consent")?.addEventListener("click", () => {
     refreshConsentStatus({ forceRefresh: true });
   });
 
   // After admin consent, the existing MSAL refresh token may still not see the
-  // newly-consented scopes. A clean re-login (prompt=login) issues a fresh
-  // refresh token bound to the latest tenant consent state.
+  // newly-consented scopes. The most reliable fix is a full logout + login,
+  // which Microsoft's auth server treats as a brand-new session bound to the
+  // latest tenant consent state. We set a sessionStorage flag so that after
+  // the post-logout redirect completes, we auto-trigger sign-in.
   $("btn-resignin-consent")?.addEventListener("click", async () => {
     showError("");
+    showInfo("Signing out and back in to refresh your session with the newly-consented scopes…");
+    try {
+      sessionStorage.setItem("labCheckBot.autoSignInAfterLogout", "1");
+    } catch { /* ignore */ }
     try {
       const inst = await getMsal();
-      await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "login" });
+      // postLogoutRedirectUri returns to our own page so the boot code can
+      // detect the flag and auto-call loginRedirect.
+      await inst.logoutRedirect({ postLogoutRedirectUri: REDIRECT_URI });
     } catch (e) {
       showError("Re-sign in: " + (e.message || e));
     }
@@ -1795,6 +1803,23 @@
       const account = getActiveAccount();
       if (account) {
         renderAccountInfo(account);
+      } else {
+        // If we just returned from a logout triggered by the "Re-sign in"
+        // button, auto-launch the sign-in flow so the user doesn't have to
+        // click again. This is the recommended way to refresh the MSAL
+        // refresh token after a tenant admin consent grant.
+        let pending = null;
+        try { pending = sessionStorage.getItem("labCheckBot.autoSignInAfterLogout"); } catch { /* ignore */ }
+        if (pending) {
+          try { sessionStorage.removeItem("labCheckBot.autoSignInAfterLogout"); } catch { /* ignore */ }
+          try {
+            const inst = await getMsal();
+            await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account" });
+            return;
+          } catch (e) {
+            showError("Auto re-sign in failed: " + (e.message || e));
+          }
+        }
       }
       // Clear any stale resume flag from prior versions.
       try { sessionStorage.removeItem("labCheckBot.resumeRun"); } catch { /* ignore */ }
