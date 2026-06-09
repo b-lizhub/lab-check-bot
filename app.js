@@ -1680,6 +1680,19 @@
     refreshConsentStatus({ forceRefresh: true });
   });
 
+  // After admin consent, the existing MSAL refresh token may still not see the
+  // newly-consented scopes. A clean re-login (prompt=login) issues a fresh
+  // refresh token bound to the latest tenant consent state.
+  $("btn-resignin-consent")?.addEventListener("click", async () => {
+    showError("");
+    try {
+      const inst = await getMsal();
+      await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "login" });
+    } catch (e) {
+      showError("Re-sign in: " + (e.message || e));
+    }
+  });
+
   // ── PAT panel wiring ─────────────────────────────────────────────────────
   function refreshPatStatus() {
     const ghStatus = $("pat-github-status");
@@ -1833,18 +1846,32 @@
     }
   }
 
+  // When the consent tab broadcasts success, optimistically mark the card as
+  // "consent recorded" so the user isn't confused by a lingering "Not granted".
+  // The real verification still happens via Graph — but the MSAL refresh token
+  // issued from the pre-consent sign-in often doesn't pick up the new scopes
+  // until the user signs out and back in, so we surface that path right here.
+  function onConsentBroadcast() {
+    setConsentUi(
+      "granted",
+      "✅ Consent was recorded. If 'Run checks' still fails with 403 errors, click 'Re-sign in' below — admin consent usually needs a fresh sign-in session to take effect."
+    );
+    // Also try a silent re-check; if it works, the optimistic state stays.
+    setTimeout(() => autoRecheckConsent("broadcast (delayed)"), 1500);
+  }
+
   try {
     const bc = new BroadcastChannel("lab-check-bot");
     bc.addEventListener("message", (ev) => {
       if (ev && ev.data && ev.data.type === "lab-check-bot:consent-granted") {
-        autoRecheckConsent("broadcast");
+        onConsentBroadcast();
       }
     });
   } catch { /* BroadcastChannel not available; localStorage fallback below */ }
 
   window.addEventListener("storage", (ev) => {
     if (ev.key === "labCheckBot.consentEvent" && ev.newValue) {
-      autoRecheckConsent("storage event");
+      onConsentBroadcast();
     }
   });
 
@@ -1907,15 +1934,10 @@
       const msg = String(e.message || e);
       const looksLikeConsent =
         /403/.test(msg) || /consent/i.test(msg) || /insufficient/i.test(msg) || /interaction_required/i.test(msg);
-      // If we *didn't* force-refresh and the silent token came back stale, the
-      // user's session still holds the pre-consent token. Tell them to re-sign-in.
-      const stale = !forceRefresh && looksLikeConsent;
       setConsentUi(
         "missing",
         looksLikeConsent
-          ? (stale
-              ? "Looks like admin consent isn't reflected in your current session. If a GA just clicked Accept, click 'Re-check status' (forces a token refresh) — or sign out and back in."
-              : "Admin consent has not been granted for this tenant yet. A Global Administrator should click the button below.")
+          ? "Either admin consent isn't granted yet, or your current sign-in session predates it. Try the buttons below: 'Grant admin consent' (GA only) and then 'Re-sign in' to refresh your session with the newly-consented scopes."
           : `Could not verify consent (${msg}). Try the button below, or 'Re-check status'.`
       );
     }
