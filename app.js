@@ -1676,10 +1676,6 @@
     window.open(url, "_blank", "noopener");
   });
 
-  $("btn-check-consent")?.addEventListener("click", () => {
-    refreshConsentStatus({ forceRefresh: true });
-  });
-
   // After admin consent, the existing MSAL refresh token may still not see the
   // newly-consented scopes. The most reliable fix is a full logout + login,
   // which Microsoft's auth server treats as a brand-new session bound to the
