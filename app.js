@@ -41,6 +41,11 @@
   const DATAVERSE_DISCOVERY_SCOPE =
     "https://globaldisco.crm.dynamics.com/.default";
 
+  // Azure Resource Manager scope. Requires Azure Service Management →
+  // user_impersonation delegated permission on the app reg + admin consent.
+  // Same rule as Dataverse: silent first, popup on user click only.
+  const ARM_SCOPE = "https://management.azure.com/user_impersonation";
+
   // ──────────────────────────────────────────────────────────────────────────
   // State
   // ──────────────────────────────────────────────────────────────────────────
@@ -931,6 +936,500 @@
   }
   window.__labCheckBot = Object.assign(window.__labCheckBot || {}, { grantDataverse });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Azure Resource Manager (ARM) checks
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Maps lab.names.azure keys → ARM resource-type strings.
+  // resourceGroups is special (different endpoint).
+  const ARM_RESOURCE_TYPES = {
+    appServices: "Microsoft.Web/sites",
+    functionApps: "Microsoft.Web/sites", // function apps are Web/sites with kind=functionapp
+    containerApps: "Microsoft.App/containerApps",
+    sqlServers: "Microsoft.Sql/servers",
+    storageAccounts: "Microsoft.Storage/storageAccounts",
+    keyVaults: "Microsoft.KeyVault/vaults",
+    openAiAccounts: "Microsoft.CognitiveServices/accounts",
+  };
+
+  async function armGet(path) {
+    const inst = await getMsal();
+    const account = getActiveAccount();
+    if (!account) throw new Error("Not signed in");
+    const tokenResp = await inst.acquireTokenSilent({
+      scopes: [ARM_SCOPE],
+      account,
+    });
+    const url = path.startsWith("http")
+      ? path
+      : `https://management.azure.com${path}`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: "Bearer " + tokenResp.accessToken,
+        Accept: "application/json",
+      },
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      throw new Error(`ARM ${resp.status}: ${resp.statusText}${body ? " — " + body.slice(0, 200) : ""}`);
+    }
+    return resp.json();
+  }
+
+  async function listAllSubscriptions() {
+    const data = await armGet("/subscriptions?api-version=2020-01-01");
+    return (data.value || [])
+      .filter((s) => (s.state || "").toLowerCase() === "enabled")
+      .map((s) => ({ id: s.subscriptionId, name: s.displayName }));
+  }
+
+  async function listResourcesOfType(subId, typeString) {
+    // Single-page list (default 100 items). Good enough for lab tenants.
+    const url =
+      `/subscriptions/${encodeURIComponent(subId)}/resources` +
+      `?api-version=2021-04-01&$filter=${encodeURIComponent(`resourceType eq '${typeString}'`)}` +
+      `&$top=200`;
+    const data = await armGet(url);
+    return data.value || [];
+  }
+
+  async function listResourceGroups(subId) {
+    const url = `/subscriptions/${encodeURIComponent(subId)}/resourcegroups?api-version=2021-04-01&$top=200`;
+    const data = await armGet(url);
+    return data.value || [];
+  }
+
+  async function runAzureChecks(lab) {
+    const az = (lab.names && lab.names.azure) || {};
+    const needsAzure =
+      (lab.portals || []).includes("Azure Portal") ||
+      Object.values(az).some((arr) => Array.isArray(arr) && arr.length > 0);
+    if (!needsAzure) return [];
+
+    const results = [];
+
+    // Silent ARM token probe. If consent / permission isn't there, emit one
+    // SKIP with a "Grant Azure access" button — never auto-redirect.
+    let subs = null;
+    let armError = null;
+    try {
+      subs = await listAllSubscriptions();
+    } catch (e) {
+      armError = e;
+    }
+
+    if (!subs) {
+      results.push({
+        id: "az-grant-arm",
+        name: "Verify Azure resources (Azure Resource Manager access required)",
+        status: "skip",
+        msg:
+          "Click below to grant Azure Resource Manager access (one-time per tenant), then re-run checks. " +
+          "Also requires the 'Azure Service Management → user_impersonation' delegated permission on the app registration." +
+          (armError ? ` (${armError.message})` : ""),
+        action: {
+          label: "🔓 Grant Azure access",
+          handler: "grantAzureArm",
+        },
+      });
+      // Still mark each detected name as pending so the user sees what we
+      // would check.
+      for (const [key, names] of Object.entries(az)) {
+        for (const name of names || []) {
+          results.push({
+            id: `az-${key}-${slug(name)}`,
+            name: `Azure ${humanizeArmKey(key)} "${name}"`,
+            status: "skip",
+            msg: "Pending Azure access — see action above.",
+          });
+        }
+      }
+      return results;
+    }
+
+    if (subs.length === 0) {
+      results.push({
+        id: "az-no-subs",
+        name: "Azure subscription available",
+        status: "fail",
+        msg: "No enabled Azure subscriptions found on this account. The lab likely requires you to create or be assigned a subscription before running its Azure steps.",
+      });
+      return results;
+    }
+
+    results.push({
+      id: "az-subs",
+      name: "Azure subscriptions accessible",
+      status: "pass",
+      msg: `Found ${subs.length} enabled subscription(s): ${subs.map((s) => s.name).join(", ")}`,
+    });
+
+    // Resource groups (single special-case endpoint)
+    if ((az.resourceGroups || []).length > 0) {
+      const allRgs = [];
+      for (const sub of subs) {
+        try {
+          const rgs = await listResourceGroups(sub.id);
+          allRgs.push(...rgs.map((r) => ({ name: r.name, sub: sub.name })));
+        } catch {
+          /* ignore one sub failing */
+        }
+      }
+      for (const target of az.resourceGroups) {
+        const hit = allRgs.find((r) => r.name.toLowerCase() === target.toLowerCase());
+        results.push({
+          id: `az-rg-${slug(target)}`,
+          name: `Azure resource group "${target}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit
+            ? `Found in subscription "${hit.sub}".`
+            : "Not found in any accessible subscription. Create the resource group as the lab describes.",
+        });
+      }
+    }
+
+    // Typed resources
+    for (const [key, typeString] of Object.entries(ARM_RESOURCE_TYPES)) {
+      const targets = az[key] || [];
+      if (targets.length === 0) continue;
+
+      const found = [];
+      for (const sub of subs) {
+        try {
+          const items = await listResourcesOfType(sub.id, typeString);
+          for (const r of items) {
+            // Function apps are Web/sites with kind containing 'functionapp'.
+            if (key === "functionApps") {
+              if (!(r.kind || "").toLowerCase().includes("functionapp")) continue;
+            } else if (key === "appServices" && typeString === "Microsoft.Web/sites") {
+              // Exclude function apps from the regular App Service bucket.
+              if ((r.kind || "").toLowerCase().includes("functionapp")) continue;
+            }
+            found.push({ name: r.name, sub: sub.name });
+          }
+        } catch {
+          /* ignore one sub failing */
+        }
+      }
+
+      for (const target of targets) {
+        const hit = found.find((f) => f.name.toLowerCase() === target.toLowerCase());
+        results.push({
+          id: `az-${key}-${slug(target)}`,
+          name: `Azure ${humanizeArmKey(key)} "${target}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit
+            ? `Found in subscription "${hit.sub}".`
+            : `Not found in any accessible subscription. The lab expected an existing ${humanizeArmKey(key)} with this name.`,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  function humanizeArmKey(key) {
+    const map = {
+      resourceGroups: "resource group",
+      appServices: "App Service",
+      functionApps: "Function App",
+      containerApps: "Container App",
+      sqlServers: "SQL server",
+      storageAccounts: "storage account",
+      keyVaults: "key vault",
+      openAiAccounts: "Azure OpenAI / Cognitive Services account",
+    };
+    return map[key] || key;
+  }
+
+  async function grantAzureArm() {
+    showError("");
+    const account = getActiveAccount();
+    const tenantId =
+      (account && (account.tenantId || (account.idTokenClaims && account.idTokenClaims.tid))) ||
+      "organizations";
+    const redirectUri =
+      location.origin +
+      location.pathname.replace(/[^/]*$/, "") +
+      "auth-redirect.html";
+    const url =
+      `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/v2.0/adminconsent` +
+      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
+      `&scope=${encodeURIComponent("https://management.azure.com/user_impersonation")}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=lab-check-bot-arm`;
+    showInfo(
+      "Opening Microsoft admin-consent page for Azure Resource Manager. " +
+      "If the app registration doesn't yet have the 'Azure Service Management → user_impersonation' " +
+      "delegated permission, add it in Entra → App registrations first, then click this button again."
+    );
+    window.open(url, "_blank", "noopener");
+  }
+  window.__labCheckBot = Object.assign(window.__labCheckBot || {}, { grantAzureArm });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GitHub PAT checks
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const GH_PAT_KEY = "labCheckBot.githubPat";
+  const ADO_PAT_KEY = "labCheckBot.adoPat";
+  const ADO_ORG_KEY = "labCheckBot.adoOrg";
+
+  function getGitHubPat() {
+    try { return localStorage.getItem(GH_PAT_KEY) || ""; } catch { return ""; }
+  }
+  function setGitHubPat(v) {
+    try { v ? localStorage.setItem(GH_PAT_KEY, v) : localStorage.removeItem(GH_PAT_KEY); } catch { /* ignore */ }
+  }
+  function getAdoPat() {
+    try { return localStorage.getItem(ADO_PAT_KEY) || ""; } catch { return ""; }
+  }
+  function setAdoPat(v) {
+    try { v ? localStorage.setItem(ADO_PAT_KEY, v) : localStorage.removeItem(ADO_PAT_KEY); } catch { /* ignore */ }
+  }
+  function getAdoOrg() {
+    try { return localStorage.getItem(ADO_ORG_KEY) || ""; } catch { return ""; }
+  }
+  function setAdoOrg(v) {
+    try { v ? localStorage.setItem(ADO_ORG_KEY, v) : localStorage.removeItem(ADO_ORG_KEY); } catch { /* ignore */ }
+  }
+
+  async function ghGet(path, pat) {
+    const url = path.startsWith("http") ? path : `https://api.github.com${path}`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: "Bearer " + pat,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      const err = new Error(`GitHub ${resp.status}: ${resp.statusText}${body ? " — " + body.slice(0, 200) : ""}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return resp.json();
+  }
+
+  async function runGitHubChecks(lab) {
+    const gh = (lab.names && lab.names.github) || {};
+    const repos = gh.repos || [];
+    const workflows = gh.workflows || [];
+    const needsGh =
+      (lab.portals || []).includes("GitHub") || repos.length > 0 || workflows.length > 0;
+    if (!needsGh) return [];
+
+    const results = [];
+    const pat = getGitHubPat();
+
+    if (!pat) {
+      results.push({
+        id: "gh-no-pat",
+        name: "GitHub repo / workflow verification",
+        status: "skip",
+        msg: "No GitHub PAT saved. Expand 'Optional: GitHub & Azure DevOps access tokens' above and paste a PAT (scopes: repo, read:org, workflow) to enable repo and workflow checks.",
+      });
+      for (const r of repos) {
+        results.push({
+          id: `gh-repo-${slug(r)}`,
+          name: `GitHub repo "${r}"`,
+          status: "skip",
+          msg: "Pending GitHub PAT — see action above.",
+        });
+      }
+      return results;
+    }
+
+    // Validate PAT
+    try {
+      const me = await ghGet("/user", pat);
+      results.push({
+        id: "gh-pat",
+        name: "GitHub PAT valid",
+        status: "pass",
+        msg: `Authenticated as @${me.login}.`,
+      });
+    } catch (e) {
+      results.push({
+        id: "gh-pat",
+        name: "GitHub PAT valid",
+        status: "fail",
+        msg: `PAT failed: ${e.message}. Re-paste a fresh token.`,
+      });
+      return results;
+    }
+
+    // Per-repo existence + workflow lookup
+    for (const r of repos) {
+      let repoData = null;
+      try {
+        repoData = await ghGet(`/repos/${r}`, pat);
+        results.push({
+          id: `gh-repo-${slug(r)}`,
+          name: `GitHub repo "${r}"`,
+          status: "pass",
+          msg: `Found · ${repoData.private ? "private" : "public"} · default branch ${repoData.default_branch}.`,
+        });
+      } catch (e) {
+        results.push({
+          id: `gh-repo-${slug(r)}`,
+          name: `GitHub repo "${r}"`,
+          status: e.status === 404 ? "fail" : "warn",
+          msg: e.status === 404
+            ? "Repo not found (or PAT lacks access). The lab may expect you to fork or clone this repo."
+            : e.message,
+        });
+        continue;
+      }
+
+      // Check workflows on this repo
+      if (workflows.length > 0) {
+        let wfData = null;
+        try {
+          wfData = await ghGet(`/repos/${r}/actions/workflows`, pat);
+        } catch {
+          /* ignore */
+        }
+        const wfList = (wfData && wfData.workflows) || [];
+        for (const wf of workflows) {
+          const hit = wfList.find(
+            (w) =>
+              (w.path || "").toLowerCase().endsWith(wf.toLowerCase()) ||
+              (w.name || "").toLowerCase() === wf.toLowerCase()
+          );
+          results.push({
+            id: `gh-wf-${slug(r)}-${slug(wf)}`,
+            name: `GitHub workflow "${wf}" in ${r}`,
+            status: hit ? "pass" : "fail",
+            msg: hit
+              ? `Found · last update ${hit.updated_at || "?"} · state ${hit.state || "?"}.`
+              : "Workflow not found in this repo. The lab expected this workflow to exist.",
+          });
+        }
+      }
+    }
+
+    return results;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Azure DevOps PAT checks
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async function adoGet(org, path, pat) {
+    const url = path.startsWith("http")
+      ? path
+      : `https://dev.azure.com/${encodeURIComponent(org)}${path}`;
+    // ADO basic auth: ':pat' base64
+    const auth = btoa(":" + pat);
+    const resp = await fetch(url, {
+      headers: { Authorization: "Basic " + auth, Accept: "application/json" },
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      const err = new Error(`ADO ${resp.status}: ${resp.statusText}${body ? " — " + body.slice(0, 200) : ""}`);
+      err.status = resp.status;
+      throw err;
+    }
+    return resp.json();
+  }
+
+  async function runAdoChecks(lab) {
+    const ado = (lab.names && lab.names.ado) || {};
+    const orgs = ado.orgs || [];
+    const projects = ado.projects || [];
+    const pipelines = ado.pipelines || [];
+    const needsAdo =
+      (lab.portals || []).includes("Azure DevOps") ||
+      orgs.length + projects.length + pipelines.length > 0;
+    if (!needsAdo) return [];
+
+    const results = [];
+    const pat = getAdoPat();
+    const orgOverride = getAdoOrg();
+    const targetOrg = orgOverride || orgs[0] || null;
+
+    if (!pat || !targetOrg) {
+      results.push({
+        id: "ado-no-pat",
+        name: "Azure DevOps verification",
+        status: "skip",
+        msg:
+          !pat
+            ? "No Azure DevOps PAT saved. Expand 'Optional: GitHub & Azure DevOps access tokens' above and paste a PAT (scopes: Project & Team Read, Code Read, Build Read)."
+            : "No ADO organization specified. Add the org name in the PAT panel above (or detect one in the lab text).",
+      });
+      return results;
+    }
+
+    // Validate connection by listing projects
+    let projectList = [];
+    try {
+      const data = await adoGet(targetOrg, "/_apis/projects?api-version=7.1&$top=200", pat);
+      projectList = data.value || [];
+      results.push({
+        id: "ado-org",
+        name: `ADO organization "${targetOrg}"`,
+        status: "pass",
+        msg: `Connected · ${projectList.length} project(s) visible.`,
+      });
+    } catch (e) {
+      results.push({
+        id: "ado-org",
+        name: `ADO organization "${targetOrg}"`,
+        status: "fail",
+        msg: `Could not list projects: ${e.message}. Check PAT scopes and org name.`,
+      });
+      return results;
+    }
+
+    // Per-project existence
+    for (const p of projects) {
+      const hit = projectList.find(
+        (x) => (x.name || "").toLowerCase() === p.toLowerCase()
+      );
+      results.push({
+        id: `ado-project-${slug(p)}`,
+        name: `ADO project "${p}"`,
+        status: hit ? "pass" : "fail",
+        msg: hit
+          ? `Found in "${targetOrg}" · state ${hit.state || "?"}.`
+          : `Not found in org "${targetOrg}". The lab expected a project with this name.`,
+      });
+    }
+
+    // Per-pipeline existence (search across known projects)
+    for (const pipeName of pipelines) {
+      let found = null;
+      for (const proj of projectList) {
+        try {
+          const data = await adoGet(
+            targetOrg,
+            `/${encodeURIComponent(proj.name)}/_apis/build/definitions?api-version=7.1&name=${encodeURIComponent(pipeName)}`,
+            pat
+          );
+          if ((data.value || []).length > 0) {
+            found = { project: proj.name, def: data.value[0] };
+            break;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      results.push({
+        id: `ado-pipeline-${slug(pipeName)}`,
+        name: `ADO pipeline "${pipeName}"`,
+        status: found ? "pass" : "fail",
+        msg: found
+          ? `Found in project "${found.project}".`
+          : `Not found in any visible project under "${targetOrg}".`,
+      });
+    }
+
+    return results;
+  }
+
   function slug(s) {
     return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   }
@@ -1181,6 +1680,49 @@
     refreshConsentStatus({ forceRefresh: true });
   });
 
+  // ── PAT panel wiring ─────────────────────────────────────────────────────
+  function refreshPatStatus() {
+    const ghStatus = $("pat-github-status");
+    if (ghStatus) ghStatus.textContent = getGitHubPat() ? "✅ saved" : "not set";
+    const adoStatus = $("pat-ado-status");
+    if (adoStatus) {
+      const pat = getAdoPat();
+      const org = getAdoOrg();
+      adoStatus.textContent =
+        pat && org ? `✅ saved (org: ${org})` : pat ? "PAT saved · add org" : "not set";
+    }
+    const ghInput = $("pat-github");
+    if (ghInput && !ghInput.value) ghInput.value = getGitHubPat();
+    const adoInput = $("pat-ado");
+    if (adoInput && !adoInput.value) adoInput.value = getAdoPat();
+    const adoOrgInput = $("pat-ado-org");
+    if (adoOrgInput && !adoOrgInput.value) adoOrgInput.value = getAdoOrg();
+  }
+  refreshPatStatus();
+
+  $("btn-save-github-pat")?.addEventListener("click", () => {
+    const v = ($("pat-github").value || "").trim();
+    setGitHubPat(v);
+    refreshPatStatus();
+  });
+  $("btn-clear-github-pat")?.addEventListener("click", () => {
+    setGitHubPat("");
+    $("pat-github").value = "";
+    refreshPatStatus();
+  });
+  $("btn-save-ado-pat")?.addEventListener("click", () => {
+    setAdoPat(($("pat-ado").value || "").trim());
+    setAdoOrg(($("pat-ado-org").value || "").trim());
+    refreshPatStatus();
+  });
+  $("btn-clear-ado-pat")?.addEventListener("click", () => {
+    setAdoPat("");
+    setAdoOrg("");
+    $("pat-ado").value = "";
+    $("pat-ado-org").value = "";
+    refreshPatStatus();
+  });
+
   $("btn-run").addEventListener("click", async () => {
     if (!lab) {
       showError("Load a lab first.");
@@ -1207,6 +1749,12 @@
       }
       const cs = await runCopilotStudioChecks(lab);
       results.push(...cs);
+      const azr = await runAzureChecks(lab);
+      results.push(...azr);
+      const ghr = await runGitHubChecks(lab);
+      results.push(...ghr);
+      const ador = await runAdoChecks(lab);
+      results.push(...ador);
       renderResults(results);
     } catch (e) {
       showError("Check run failed: " + (e.message || e));

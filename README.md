@@ -4,13 +4,13 @@ Single-page web app that:
 
 1. Takes a GitHub URL to a lab (folder, file, or whole repo).
 2. Fetches and parses the markdown.
-3. Detects which portals the lab touches and any named items (agents, pools).
+3. Detects which portals the lab touches (Microsoft 365, Azure, GitHub, Azure DevOps, Copilot Studio, Intune, Entra) and any named items (agents, resources, repos, projects, pipelines).
 4. Signs the user into their Microsoft 365 tenant via MSAL.
-5. Runs Microsoft Graph checks to see what's already done.
+5. Runs Microsoft Graph + Azure Resource Manager checks, plus optional GitHub and Azure DevOps PAT-based checks, to see what's already done.
 
 Everything runs in the browser. No server. Drop the folder on any static host (GitHub Pages is the intended target).
 
-> Note: Copilot Studio agent verification is intentionally Graph-only — we check that the Dataverse service principal is provisioned in the tenant and emit a manual-verify link for each named agent. This avoids needing a Dynamics CRM permission grant in every tenant the tool is used in.
+> Copilot Studio agent verification and Azure resource verification each need one extra one-time admin consent per tenant. GitHub and Azure DevOps checks use a Personal Access Token kept in localStorage. Skip any of them and you'll still get all the other checks plus "what the lab says to do" hints for anything that fails.
 
 ## Try it locally
 
@@ -30,6 +30,7 @@ You can also just double-click `index.html`, but using `http://localhost:5173` m
 4. Redirect URI → platform **Single-page application (SPA)** → add:
    - `http://localhost:5173/`
    - your GitHub Pages URL, e.g. `https://<user>.github.io/lab-check-bot/`
+   - and `https://<user>.github.io/lab-check-bot/auth-redirect.html`
 5. API permissions (delegated, Microsoft Graph):
    - `User.Read`
    - `Application.Read.All`
@@ -37,9 +38,10 @@ You can also just double-click `index.html`, but using `http://localhost:5173` m
    - `RoleManagement.Read.Directory`
    - `DeviceManagementServiceConfig.Read.All`
    - `DeviceManagementConfiguration.Read.All`
-6. (Optional, for Copilot Studio agent name verification) API permissions (delegated, **Dynamics CRM** → `user_impersonation`). If you skip this, the tool falls back to "manual verify" links for each named agent — no consent loop, just less automation.
-7. Grant admin consent for the tenant.
-8. Copy the Application (client) ID. Either:
+6. (Optional, for Copilot Studio agent name verification) API permissions (delegated, **Dynamics CRM** → `user_impersonation`).
+7. (Optional, for Azure resource verification) API permissions (delegated, **Azure Service Management** → `user_impersonation`). Without this, Azure checks become SKIPs with a one-time "Grant Azure access" button surfaced inline in the results.
+8. Grant admin consent for the tenant.
+9. Copy the Application (client) ID. Either:
    - Edit `app.js` and replace `DEFAULT_CLIENT_ID`, or
    - Append `?clientId=<guid>` to the page URL.
 
@@ -67,8 +69,25 @@ Dynamic Copilot Studio checks (only when the lab mentions Copilot Studio / Power
 - Dataverse service principal is present and enabled in the tenant (Graph, always runs).
 - For each named agent: silently asks for a Dataverse token. If granted, walks every Dataverse environment looking for a bot whose name matches. If not granted, shows a one-time **🔓 Grant Dataverse access** popup button — no redirect, no consent loop.
 
+Azure Resource Manager checks (only when the lab mentions Azure Portal or names resources):
+
+- Lists all enabled subscriptions on the signed-in account.
+- For each detected resource group, App Service, Function App, Container App, SQL server, storage account, key vault, or Azure OpenAI / Cognitive Services account: query the matching ARM endpoint across every subscription and PASS/FAIL by name match.
+- Requires `Azure Service Management → user_impersonation` consent. If missing, emits one SKIP row with a **🔓 Grant Azure access** button.
+
+GitHub checks (only when the lab mentions GitHub or names repos/workflows):
+
+- Save a PAT once in the "Optional: GitHub & Azure DevOps access tokens" panel (scopes: `repo`, `read:org`, `workflow`).
+- Validates the PAT against `/user`, then PASS/FAIL each detected repo (`GET /repos/{owner}/{repo}`) and lists workflows on found repos to match each detected workflow file/name.
+
+Azure DevOps checks (only when the lab mentions ADO or names orgs/projects/pipelines):
+
+- Save a PAT and org name once in the same panel (scopes: Project & Team Read, Code Read, Build Read).
+- Lists projects in the org (validates PAT), then PASS/FAIL each detected project and searches each project's build definitions for each detected pipeline name.
+
 ## Files
 
 - `index.html` — UI + styles
-- `app.js` — all logic (GitHub fetch, parsing, MSAL, checks, rendering)
+- `app.js` — all logic (GitHub fetch, parsing, MSAL, Graph + ARM + GitHub + ADO checks, rendering)
+- `auth-redirect.html` — landing page after admin-consent redirects
 - `.github/workflows/pages.yml` — auto-deploy

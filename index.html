@@ -240,12 +240,14 @@
         <li><strong>Paste a GitHub lab URL.</strong> Anything works: a repo root, a <code>/tree/main/docs/...</code> folder, a single <code>.md</code> file, or a published GitHub Pages site (<code>*.github.io/...</code>).</li>
         <li><strong>Sign in with a Global Administrator account</strong> in the tenant you want to check. All checks run in your browser — no data leaves your machine.</li>
         <li><strong>First time in a tenant?</strong> Expand <em>"First time in this tenant? Grant admin consent"</em> and click <strong>🔓 Grant admin consent for this tenant</strong>. A GA accepts the read-only Graph permissions once per tenant; after that, every user in that tenant just signs in.</li>
-        <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals it touches (Copilot Studio, Intune, Entra, etc.) and any named items (agents, pools), then queries Microsoft Graph + Power Platform to see what's already in place.</li>
+        <li><strong>(Optional) Add platform tokens.</strong> If the lab uses <strong>GitHub</strong> or <strong>Azure DevOps</strong>, expand <em>"Optional: GitHub &amp; Azure DevOps access tokens"</em> and paste a PAT. For <strong>Azure resources</strong> (App Service, Storage, Key Vault, OpenAI, etc.), the bot uses your signed-in Microsoft identity — you'll see a one-time <strong>🔓 Grant Azure access</strong> button in the results if consent is needed.</li>
+        <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals it touches (Copilot Studio, Intune, Entra, Azure, GitHub, Azure DevOps) and any named items (agents, pools, resources, repos), then queries each service to see what's already in place.</li>
         <li><strong>Review results.</strong> Each row is <strong>PASS / WARN / FAIL / SKIP</strong>. For any FAIL or WARN, expand <strong>📖 What the lab says to do</strong> to see the exact lab step(s) you were supposed to complete.</li>
       </ol>
       <p class="muted" style="margin-top:10px;font-size:0.85rem;">
-        Copilot Studio agent verification requires one extra one-time Dataverse consent. Skip it and agent checks become "manual verify" links — no consent loop, just less automation.
-        The lab text never leaves your browser; the bot only calls <code>api.github.com</code>, <code>raw.githubusercontent.com</code>, <code>graph.microsoft.com</code>, and (optionally) Dataverse for your tenant.
+        Copilot Studio agent verification and Azure resource verification each require one extra one-time admin consent in the tenant.
+        GitHub and Azure DevOps checks use Personal Access Tokens that stay in your browser's localStorage.
+        The lab text never leaves your browser; the bot only calls <code>api.github.com</code>, <code>raw.githubusercontent.com</code>, <code>graph.microsoft.com</code>, <code>management.azure.com</code>, <code>dev.azure.com</code>, and (optionally) Dataverse for your tenant.
       </p>
     </details>
 
@@ -300,6 +302,51 @@
           <button id="btn-check-consent" class="secondary">Re-check status</button>
         </div>
       </div>
+
+      <details id="pat-panel" style="margin-top: 14px;">
+        <summary style="cursor: pointer; font-weight: 600;">
+          Optional: GitHub &amp; Azure DevOps access tokens
+        </summary>
+        <div style="margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);">
+          <p class="muted" style="margin-top: 0;">
+            Some labs reference repos in <strong>GitHub</strong> or pipelines in <strong>Azure DevOps</strong>.
+            To check those, paste a <strong>Personal Access Token (PAT)</strong> below. Tokens are kept in your
+            browser's localStorage only and are <strong>never</strong> sent anywhere except the matching service.
+          </p>
+
+          <div style="margin-top: 12px;">
+            <label for="pat-github" style="font-weight: 600;">GitHub PAT</label>
+            <div class="muted" style="font-size: 0.85rem; margin: 2px 0 6px;">
+              Recommended scopes: <code>repo</code>, <code>read:org</code>, <code>workflow</code>.
+              Create one at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+            </div>
+            <div class="row">
+              <input id="pat-github" type="password" autocomplete="off"
+                placeholder="ghp_… or github_pat_…" style="flex: 1; min-width: 280px;" />
+              <button id="btn-save-github-pat" class="secondary">Save</button>
+              <button id="btn-clear-github-pat" class="secondary">Clear</button>
+              <span id="pat-github-status" class="muted" style="font-size: 0.85rem;"></span>
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <label for="pat-ado" style="font-weight: 600;">Azure DevOps PAT</label>
+            <div class="muted" style="font-size: 0.85rem; margin: 2px 0 6px;">
+              Recommended scopes: <em>Project &amp; Team (Read)</em>, <em>Code (Read)</em>, <em>Build (Read)</em>.
+              Create one at <code>https://dev.azure.com/&lt;your-org&gt;/_usersSettings/tokens</code>.
+            </div>
+            <div class="row">
+              <input id="pat-ado" type="password" autocomplete="off"
+                placeholder="Personal access token" style="flex: 1; min-width: 280px;" />
+              <input id="pat-ado-org" type="text" autocomplete="off"
+                placeholder="ADO org (e.g. contoso)" style="flex: 0 0 200px;" />
+              <button id="btn-save-ado-pat" class="secondary">Save</button>
+              <button id="btn-clear-ado-pat" class="secondary">Clear</button>
+              <span id="pat-ado-status" class="muted" style="font-size: 0.85rem;"></span>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <!-- Step 3: Parsed lab summary -->
