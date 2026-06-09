@@ -1811,6 +1811,46 @@
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Auto re-check consent when the user comes back from the consent tab
+  //
+  // auth-redirect.html broadcasts a "consent-granted" message via
+  // BroadcastChannel and also writes to localStorage as a fallback. Either
+  // signal triggers a forced consent re-check in this tab. We also re-check
+  // on window focus (cheap insurance: if a user accepts consent and just
+  // alt-tabs back, this catches it even when BroadcastChannel is unavailable).
+  // ──────────────────────────────────────────────────────────────────────────
+
+  let lastAutoConsentCheck = 0;
+  function autoRecheckConsent(reason) {
+    // Throttle to once every 3s to avoid spamming Graph on rapid focus/blur.
+    const now = Date.now();
+    if (now - lastAutoConsentCheck < 3000) return;
+    lastAutoConsentCheck = now;
+    if (!getActiveAccount()) return;
+    refreshConsentStatus({ forceRefresh: true });
+    if (reason) {
+      try { console.info("[lab-check-bot] consent re-check triggered:", reason); } catch {}
+    }
+  }
+
+  try {
+    const bc = new BroadcastChannel("lab-check-bot");
+    bc.addEventListener("message", (ev) => {
+      if (ev && ev.data && ev.data.type === "lab-check-bot:consent-granted") {
+        autoRecheckConsent("broadcast");
+      }
+    });
+  } catch { /* BroadcastChannel not available; localStorage fallback below */ }
+
+  window.addEventListener("storage", (ev) => {
+    if (ev.key === "labCheckBot.consentEvent" && ev.newValue) {
+      autoRecheckConsent("storage event");
+    }
+  });
+
+  window.addEventListener("focus", () => autoRecheckConsent("window focus"));
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Consent status indicator
   //
   // Probes a Graph endpoint that requires an admin-consented scope. A 200 means

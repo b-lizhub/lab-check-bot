@@ -20,10 +20,19 @@
   <script>
     const params = new URLSearchParams(location.search);
     const err = params.get("error") || params.get("error_description");
+    const adminConsent = params.get("admin_consent");
+    const state = params.get("state") || "";
     if (err) {
       document.getElementById("title").textContent = "⚠️ Consent failed";
       document.getElementById("title").classList.add("err");
       document.getElementById("msg").textContent = decodeURIComponent(err);
+    } else if (adminConsent) {
+      // Notify any open Lab Check Bot tab (same origin) that consent was
+      // granted, so it can force-refresh its access token without the user
+      // having to click "Re-check status".
+      const payload = { type: "lab-check-bot:consent-granted", state, ts: Date.now() };
+      try { localStorage.setItem("labCheckBot.consentEvent", JSON.stringify(payload)); } catch {}
+      try { new BroadcastChannel("lab-check-bot").postMessage(payload); } catch {}
     }
   </script>
 </body>
