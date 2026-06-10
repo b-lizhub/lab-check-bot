@@ -74,6 +74,10 @@
         obj.names.azure = obj.names.azure || {};
         obj.names.github = obj.names.github || {};
         obj.names.ado = obj.names.ado || {};
+        obj.names.entra = obj.names.entra || {};
+        obj.names.intune = obj.names.intune || {};
+        obj.names.spSites = obj.names.spSites || [];
+        obj.names.openaiDeployments = obj.names.openaiDeployments || [];
         return obj;
       }
     } catch { /* ignore */ }
@@ -417,6 +421,57 @@
     "main", "master", "dev", "prod", "production", "staging",
   ]);
 
+  // ── Entra named entity patterns ────────────────────────────────────────────
+  const ENTRA_PATTERNS = {
+    groups: [
+      /(?:create|add|configure|set\s+up)\s+(?:a\s+)?(?:new\s+)?(?:security\s+|microsoft\s+365\s+|m365\s+|mail-enabled\s+)?group\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /group\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /New-MgGroup\b[^\n]*?-DisplayName\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+    users: [
+      /(?:create|add|invite|new)\s+(?:a\s+)?(?:new\s+)?(?:guest\s+)?user\s+(?:account\s+)?(?:with\s+(?:the\s+)?(?:display\s+)?name|named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /New-MgUser\b[^\n]*?-DisplayName\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+    caPolicies: [
+      /conditional\s+access\s+policy\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /(?:create|configure|new)\s+(?:a\s+)?(?:new\s+)?(?:conditional\s+access|CA)\s+policy\s+(?:named?|called)?\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+    appRegistrations: [
+      /(?:register|create|add|new)\s+(?:a\s+)?(?:new\s+)?(?:an?\s+)?(?:application|app\s+registration|app)\s+(?:with\s+(?:the\s+)?name|named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /New-MgApplication\b[^\n]*?-DisplayName\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+  };
+
+  // ── Intune named entity patterns ───────────────────────────────────────────
+  const INTUNE_PATTERNS = {
+    compliancePolicies: [
+      /(?:create|configure|new|add)\s+(?:a\s+)?(?:new\s+)?(?:device\s+)?compliance\s+policy\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /compliance\s+policy\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+    configProfiles: [
+      /(?:create|configure|new|add)\s+(?:a\s+)?(?:new\s+)?(?:device\s+)?configuration\s+profile\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /configuration\s+profile\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+    appProtectionPolicies: [
+      /app\s+protection\s+policy\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+      /(?:create|configure|new)\s+(?:a\s+)?(?:new\s+)?app\s+protection\s+policy\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    ],
+  };
+
+  // ── SharePoint site patterns ───────────────────────────────────────────────
+  const SP_SITE_PATTERNS = [
+    /(?:create|configure|new|add)\s+(?:a\s+)?(?:new\s+)?(?:sharepoint\s+)?site\s+(?:named?|called|with\s+(?:the\s+)?name)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+    /sharepoint\s+site\s+(?:named?|called)\s+[`*"']+([^`*"'\n]{2,80})[`*"']+/gi,
+  ];
+
+  // ── Azure OpenAI deployment patterns ──────────────────────────────────────
+  const OPENAI_DEPLOY_PATTERNS = [
+    /(?:create|add|new)\s+(?:a\s+)?(?:model\s+)?deployment\s+(?:named?|called|with\s+(?:the\s+)?name)\s+[`*"']+([A-Za-z0-9][A-Za-z0-9_.-]{1,60})[`*"']+/gi,
+    /--deployment-name\s+([A-Za-z0-9][A-Za-z0-9_.-]{1,60})/gi,
+    /model\s+deployment\s+(?:named?|called)\s+[`*"']+([A-Za-z0-9][A-Za-z0-9_.-]{1,60})[`*"']+/gi,
+    /deployment\s+name[:\s]+[`*"']+([A-Za-z0-9][A-Za-z0-9_.-]{1,60})[`*"']+/gi,
+  ];
+
   function extractNamed(text, patternMap) {
     const result = {};
     for (const [key, patterns] of Object.entries(patternMap)) {
@@ -527,6 +582,10 @@
     const azure = extractNamed(combined, AZURE_RESOURCE_PATTERNS);
     const github = extractNamed(combined, GITHUB_PATTERNS);
     const ado = extractNamed(combined, ADO_PATTERNS);
+    const entra = extractNamed(combined, ENTRA_PATTERNS);
+    const intune = extractNamed(combined, INTUNE_PATTERNS);
+    const spSites = extractMatches(combined, SP_SITE_PATTERNS);
+    const openaiDeployments = extractMatches(combined, OPENAI_DEPLOY_PATTERNS);
 
     return {
       title: fetched.title,
@@ -534,7 +593,7 @@
       rawText: combined,
       steps,
       portals,
-      names: { agents, pools, azure, github, ado },
+      names: { agents, pools, azure, github, ado, entra, intune, spSites, openaiDeployments },
     };
   }
 
@@ -911,28 +970,22 @@
   // Exposed on window so the in-result "Grant" button can call it.
   async function grantDataverse() {
     showError("");
-    const account = getActiveAccount();
-    const tenantId =
-      (account && (account.tenantId || (account.idTokenClaims && account.idTokenClaims.tid))) ||
-      "organizations";
-    // Open Microsoft's standard admin-consent page in a new tab. Global Admins
-    // see a normal Microsoft consent screen (not a blank popup). After they
-    // click Accept, AAD redirects to our redirectUri — we just show a small
-    // "all done" page there. The user then comes back to this tab and re-runs.
-    const redirectUri =
-      location.origin +
-      location.pathname.replace(/[^/]*$/, "") +
-      "auth-redirect.html";
-    const url =
-      `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/v2.0/adminconsent` +
-      `?client_id=${encodeURIComponent(CLIENT_ID)}` +
-      `&scope=${encodeURIComponent("https://globaldisco.crm.dynamics.com/user_impersonation")}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=lab-check-bot`;
-    showInfo(
-      "Opening Microsoft admin-consent page in a new tab. After you click Accept, come back here and click Run checks again."
-    );
-    window.open(url, "_blank", "noopener");
+    try {
+      const inst = await getMsal();
+      const account = getActiveAccount();
+      if (!account) throw new Error("Not signed in");
+      // Use acquireTokenPopup so MSAL caches the Dataverse token immediately
+      // after consent. That way the next discoverInstances() call (via
+      // acquireTokenSilent) succeeds without any extra user action.
+      await inst.acquireTokenPopup({
+        scopes: [DATAVERSE_DISCOVERY_SCOPE],
+        account,
+      });
+      showInfo("Dataverse access granted — re-running checks…");
+      $("btn-run").click();
+    } catch (e) {
+      showError("Could not grant Dataverse access: " + (e.message || String(e)));
+    }
   }
   window.__labCheckBot = Object.assign(window.__labCheckBot || {}, { grantDataverse });
 
@@ -1223,23 +1276,8 @@
     const results = [];
     const pat = getGitHubPat();
 
-    if (!pat) {
-      results.push({
-        id: "gh-no-pat",
-        name: "GitHub repo / workflow verification",
-        status: "skip",
-        msg: "No GitHub PAT saved. Expand 'Optional: GitHub & Azure DevOps access tokens' above and paste a PAT (scopes: repo, read:org, workflow) to enable repo and workflow checks.",
-      });
-      for (const r of repos) {
-        results.push({
-          id: `gh-repo-${slug(r)}`,
-          name: `GitHub repo "${r}"`,
-          status: "skip",
-          msg: "Pending GitHub PAT — see action above.",
-        });
-      }
-      return results;
-    }
+    // If no PAT is set, silently skip — the PAT panel explains how to enable these checks.
+    if (!pat) return [];
 
     // Validate PAT
     try {
@@ -1257,6 +1295,9 @@
         status: "fail",
         msg: `PAT failed: ${e.message}. Re-paste a fresh token.`,
       });
+      // If PAT is simply expired/invalid (401), return nothing — same as no PAT.
+      // The user can clear the stale token in the panel above.
+      if (e.status === 401) return [];
       return results;
     }
 
@@ -1350,18 +1391,8 @@
     const orgOverride = getAdoOrg();
     const targetOrg = orgOverride || orgs[0] || null;
 
-    if (!pat || !targetOrg) {
-      results.push({
-        id: "ado-no-pat",
-        name: "Azure DevOps verification",
-        status: "skip",
-        msg:
-          !pat
-            ? "No Azure DevOps PAT saved. Expand 'Optional: GitHub & Azure DevOps access tokens' above and paste a PAT (scopes: Project & Team Read, Code Read, Build Read)."
-            : "No ADO organization specified. Add the org name in the PAT panel above (or detect one in the lab text).",
-      });
-      return results;
-    }
+    // If no PAT/org is set, silently skip — the PAT panel explains how to enable these checks.
+    if (!pat || !targetOrg) return [];
 
     // Validate connection by listing projects
     let projectList = [];
@@ -1434,9 +1465,236 @@
     return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   }
 
-  // For a failing/warning check, surface the lab step(s) the user was supposed
-  // to perform. Pure regex / token-overlap matching against parsed lab.steps —
-  // no LLM, no Graph follow-up. Returns up to `limit` step strings (snippets).
+  // Escape a string for use inside an OData single-quoted literal.
+  function oDataStr(s) { return s.replace(/'/g, "''"); }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Entra named-entity checks (groups, users, CA policies, app registrations)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async function runEntraNamedChecks(lab) {
+    const entra = lab.names.entra || {};
+    const hasAny = Object.values(entra).some((arr) => arr && arr.length);
+    if (!hasAny) return [];
+
+    const results = [];
+
+    // Groups
+    for (const name of entra.groups || []) {
+      try {
+        const d = await graphGet(`/groups?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,groupTypes`);
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `entra-group-${slug(name)}`,
+          name: `Entra group "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit
+            ? `Found · ${(hit.groupTypes || []).includes("Unified") ? "Microsoft 365" : "Security"} group`
+            : "Group not found in directory.",
+        });
+      } catch (e) {
+        results.push({ id: `entra-group-${slug(name)}`, name: `Entra group "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    // Users — requires ConsistencyLevel: eventual header for displayName $filter
+    for (const name of entra.users || []) {
+      try {
+        const token = await getToken(["https://graph.microsoft.com/.default"]);
+        const resp = await fetch(
+          `https://graph.microsoft.com/v1.0/users?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,userPrincipalName&$count=true`,
+          { headers: { Authorization: "Bearer " + token, ConsistencyLevel: "eventual" } }
+        );
+        const d = resp.ok ? await resp.json() : { value: [] };
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `entra-user-${slug(name)}`,
+          name: `Entra user "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit ? `Found · ${hit.userPrincipalName}` : "User not found in directory.",
+        });
+      } catch (e) {
+        results.push({ id: `entra-user-${slug(name)}`, name: `Entra user "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    // Conditional Access policies
+    for (const name of entra.caPolicies || []) {
+      try {
+        const d = await graphGet(`/identity/conditionalAccess/policies?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,state`);
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `entra-ca-${slug(name)}`,
+          name: `Conditional Access policy "${name}"`,
+          status: hit ? (hit.state === "enabled" ? "pass" : "warn") : "fail",
+          msg: hit
+            ? `Found · state: ${hit.state}`
+            : "Policy not found. Create it in Entra ID → Security → Conditional Access.",
+        });
+      } catch (e) {
+        results.push({ id: `entra-ca-${slug(name)}`, name: `CA policy "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    // App registrations
+    for (const name of entra.appRegistrations || []) {
+      try {
+        const d = await graphGet(`/applications?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,appId`);
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `entra-app-${slug(name)}`,
+          name: `App registration "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit
+            ? `Found · client ID: ${hit.appId}`
+            : "App registration not found. Register it in Entra ID → App registrations.",
+        });
+      } catch (e) {
+        results.push({ id: `entra-app-${slug(name)}`, name: `App registration "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    return results;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Intune named-entity checks (compliance policies, config profiles, app protection)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async function runIntuneNamedChecks(lab) {
+    const intune = lab.names.intune || {};
+    const hasAny = Object.values(intune).some((arr) => arr && arr.length);
+    if (!hasAny) return [];
+
+    const results = [];
+
+    for (const name of intune.compliancePolicies || []) {
+      try {
+        const d = await graphGet(`/deviceManagement/deviceCompliancePolicies?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName`, true);
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `intune-comp-${slug(name)}`,
+          name: `Intune compliance policy "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit ? `Found` : "Compliance policy not found. Create it in Intune → Devices → Compliance policies.",
+        });
+      } catch (e) {
+        results.push({ id: `intune-comp-${slug(name)}`, name: `Intune compliance policy "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    for (const name of intune.configProfiles || []) {
+      try {
+        const d = await graphGet(`/deviceManagement/deviceConfigurations?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName`, true);
+        const hit = (d.value || [])[0];
+        results.push({
+          id: `intune-cfg-${slug(name)}`,
+          name: `Intune config profile "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit ? `Found` : "Configuration profile not found. Create it in Intune → Devices → Configuration.",
+        });
+      } catch (e) {
+        results.push({ id: `intune-cfg-${slug(name)}`, name: `Intune config profile "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    for (const name of intune.appProtectionPolicies || []) {
+      try {
+        const d = await graphGet(`/deviceAppManagement/managedAppPolicies?$select=id,displayName`, true);
+        const hit = (d.value || []).find((p) => (p.displayName || "").toLowerCase() === name.toLowerCase());
+        results.push({
+          id: `intune-app-${slug(name)}`,
+          name: `Intune app protection policy "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit ? `Found` : "App protection policy not found. Create it in Intune → Apps → App protection policies.",
+        });
+      } catch (e) {
+        results.push({ id: `intune-app-${slug(name)}`, name: `Intune app protection policy "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+
+    return results;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SharePoint site checks
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async function runSharePointChecks(lab) {
+    const sites = lab.names.spSites || [];
+    if (!sites.length) return [];
+
+    const results = [];
+    for (const name of sites) {
+      try {
+        const d = await graphGet(`/sites?search=${encodeURIComponent(name)}&$select=id,displayName,name,webUrl`);
+        const hit = (d.value || []).find(
+          (s) =>
+            (s.displayName || "").toLowerCase() === name.toLowerCase() ||
+            (s.name || "").toLowerCase() === name.toLowerCase()
+        );
+        results.push({
+          id: `sp-site-${slug(name)}`,
+          name: `SharePoint site "${name}"`,
+          status: hit ? "pass" : "fail",
+          msg: hit ? `Found · ${hit.webUrl}` : "Site not found. Create it in SharePoint admin or via a lab step.",
+        });
+      } catch (e) {
+        results.push({ id: `sp-site-${slug(name)}`, name: `SharePoint site "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+      }
+    }
+    return results;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Azure OpenAI model deployment checks
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async function runOpenAiDeploymentChecks(lab) {
+    const deploymentNames = lab.names.openaiDeployments || [];
+    const openaiResources = (lab.names.azure || {}).openAiAccounts || [];
+    if (!deploymentNames.length || !openaiResources.length) return [];
+
+    // Reuse ARM token — if not yet acquired, this will fail gracefully.
+    let subs;
+    try { subs = await listAllSubscriptions(); } catch { return []; }
+    if (!subs || !subs.length) return [];
+
+    // Find the OpenAI resources by name across subscriptions.
+    const foundResources = [];
+    for (const sub of subs) {
+      try {
+        const items = await listResourcesOfType(sub.id, "Microsoft.CognitiveServices/accounts");
+        for (const r of items) {
+          if (openaiResources.some((n) => n.toLowerCase() === r.name.toLowerCase())) {
+            foundResources.push({ id: r.id, name: r.name });
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    if (!foundResources.length) return [];
+
+    const results = [];
+    for (const dep of deploymentNames) {
+      let found = null;
+      for (const res of foundResources) {
+        try {
+          const d = await armGet(`${res.id}/deployments?api-version=2023-05-01`);
+          const hit = (d.value || []).find((x) => (x.name || "").toLowerCase() === dep.toLowerCase());
+          if (hit) { found = { resource: res.name, model: hit.properties?.model?.name || "?" }; break; }
+        } catch { /* ignore */ }
+      }
+      results.push({
+        id: `openai-dep-${slug(dep)}`,
+        name: `Azure OpenAI deployment "${dep}"`,
+        status: found ? "pass" : "fail",
+        msg: found
+          ? `Found in "${found.resource}" · model: ${found.model}`
+          : `Not found in ${foundResources.map((r) => `"${r.name}"`).join(", ")}. Deploy the model in Azure AI Foundry or the Azure portal.`,
+      });
+    }
+    return results;
+  }
   function findRelevantSteps(result, labObj, limit = 3) {
     if (!labObj || !Array.isArray(labObj.steps) || labObj.steps.length === 0) return [];
 
@@ -1502,12 +1760,18 @@
     const az = lab.names.azure || {};
     const gh = lab.names.github || {};
     const ado = lab.names.ado || {};
+    const entra = lab.names.entra || {};
+    const intune = lab.names.intune || {};
     const hasAnyName =
       lab.names.agents.length ||
       lab.names.pools.length ||
+      (lab.names.spSites || []).length ||
+      (lab.names.openaiDeployments || []).length ||
       Object.values(az).some((v) => v && v.length) ||
       Object.values(gh).some((v) => v && v.length) ||
-      Object.values(ado).some((v) => v && v.length);
+      Object.values(ado).some((v) => v && v.length) ||
+      Object.values(entra).some((v) => v && v.length) ||
+      Object.values(intune).some((v) => v && v.length);
     if (!hasAnyName) {
       named.innerHTML = `<p class="muted">No named resources detected.</p>`;
     } else {
@@ -1518,6 +1782,17 @@
       const parts = [];
       if (lab.names.agents.length) parts.push(row("Agents", lab.names.agents));
       if (lab.names.pools.length) parts.push(row("Pools/Groups", lab.names.pools));
+      // Entra
+      parts.push(row("Entra groups", entra.groups));
+      parts.push(row("Entra users", entra.users));
+      parts.push(row("Conditional Access policies", entra.caPolicies));
+      parts.push(row("App registrations", entra.appRegistrations));
+      // Intune
+      parts.push(row("Intune compliance policies", intune.compliancePolicies));
+      parts.push(row("Intune config profiles", intune.configProfiles));
+      parts.push(row("Intune app protection policies", intune.appProtectionPolicies));
+      // SharePoint
+      if ((lab.names.spSites || []).length) parts.push(row("SharePoint sites", lab.names.spSites));
       // Azure
       parts.push(row("Azure resource groups", az.resourceGroups));
       parts.push(row("Azure App Services / Web Apps", az.appServices));
@@ -1527,6 +1802,7 @@
       parts.push(row("Azure Storage accounts", az.storageAccounts));
       parts.push(row("Azure Key Vaults", az.keyVaults));
       parts.push(row("Azure OpenAI / AI Foundry", az.openAiAccounts));
+      if ((lab.names.openaiDeployments || []).length) parts.push(row("Azure OpenAI model deployments", lab.names.openaiDeployments));
       // GitHub
       parts.push(row("GitHub repos", gh.repos));
       parts.push(row("GitHub workflows", gh.workflows));
@@ -1616,6 +1892,16 @@
     el.addEventListener("click", () => {
       $("lab-url").value = el.getAttribute("data-url");
       $("btn-load").click();
+    });
+  });
+
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-" + tab).classList.add("active");
     });
   });
 
@@ -1766,8 +2052,16 @@
       }
       const cs = await runCopilotStudioChecks(lab);
       results.push(...cs);
+      const entraR = await runEntraNamedChecks(lab);
+      results.push(...entraR);
+      const intuneR = await runIntuneNamedChecks(lab);
+      results.push(...intuneR);
+      const spR = await runSharePointChecks(lab);
+      results.push(...spR);
       const azr = await runAzureChecks(lab);
       results.push(...azr);
+      const openaiR = await runOpenAiDeploymentChecks(lab);
+      results.push(...openaiR);
       const ghr = await runGitHubChecks(lab);
       results.push(...ghr);
       const ador = await runAdoChecks(lab);
