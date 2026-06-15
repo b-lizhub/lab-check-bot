@@ -33,6 +33,8 @@
     "RoleManagement.Read.Directory",
     "DeviceManagementServiceConfig.Read.All",
     "DeviceManagementConfiguration.Read.All",
+    "SecurityIdentitiesHealth.Read.All",
+    "SecurityIdentitiesSensors.Read.All",
   ];
 
   // Dataverse discovery scope. Requires Dynamics CRM → user_impersonation
@@ -76,6 +78,7 @@
         obj.names.ado = obj.names.ado || {};
         obj.names.entra = obj.names.entra || {};
         obj.names.intune = obj.names.intune || {};
+        obj.names.dfi = obj.names.dfi || {};
         obj.names.spSites = obj.names.spSites || [];
         obj.names.openaiDeployments = obj.names.openaiDeployments || [];
         return obj;
@@ -285,6 +288,13 @@
     { name: "Copilot Studio", patterns: [/copilot\s*studio/i, /copilotstudio\.microsoft\.com/i] },
     { name: "Power Platform Admin", patterns: [/power\s*platform\s*admin/i, /admin\.powerplatform/i, /power\s*automate/i] },
     { name: "Microsoft Entra", patterns: [/microsoft\s*entra/i, /entra\.microsoft\.com/i, /aad|azure\s*ad\b/i] },
+    { name: "Microsoft Defender for Identity", patterns: [
+        /defender\s*for\s*identity/i, /\bMDI\b/, /azure\s*atp/i,
+        /Set-MDIConfiguration/i, /New-MDIConfigurationReport/i, /DefenderForIdentity/i,
+        /sensor\s*(?:health|deployment|setup)/i, /honeytoken/i, /gMSA/i,
+      ] },
+    { name: "Microsoft Sentinel", patterns: [/microsoft\s*sentinel/i, /azure\s*sentinel/i, /sentinel2go/i, /securityinsights/i] },
+    { name: "Microsoft Defender XDR", patterns: [/defender\s*xdr/i, /microsoft\s*365\s*defender/i, /security\.microsoft\.com/i] },
     { name: "Microsoft Intune", patterns: [/intune/i] },
     { name: "Azure Portal", patterns: [
         /azure\s*portal/i, /portal\.azure\.com/i, /resource\s*group/i,
@@ -584,6 +594,7 @@
     const ado = extractNamed(combined, ADO_PATTERNS);
     const entra = extractNamed(combined, ENTRA_PATTERNS);
     const intune = extractNamed(combined, INTUNE_PATTERNS);
+    const dfi = extractDfi(combined);
     const spSites = extractMatches(combined, SP_SITE_PATTERNS);
     const openaiDeployments = extractMatches(combined, OPENAI_DEPLOY_PATTERNS);
 
@@ -593,7 +604,7 @@
       rawText: combined,
       steps,
       portals,
-      names: { agents, pools, azure, github, ado, entra, intune, spSites, openaiDeployments },
+      names: { agents, pools, azure, github, ado, entra, intune, dfi, spSites, openaiDeployments },
     };
   }
 
@@ -678,7 +689,10 @@
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
-      throw new Error(`Graph ${resp.status}: ${body || resp.statusText}`);
+      const err = new Error(`Graph ${resp.status}: ${body || resp.statusText}`);
+      err.status = resp.status;
+      err.body = body;
+      throw err;
     }
     return resp.json();
   }
@@ -1210,6 +1224,7 @@
       `?client_id=${encodeURIComponent(CLIENT_ID)}` +
       `&scope=${encodeURIComponent("https://management.azure.com/user_impersonation")}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&prompt=select_account` +
       `&state=lab-check-bot-arm`;
     showInfo(
       "Opening Microsoft admin-consent page for Azure Resource Manager. " +
@@ -1468,6 +1483,511 @@
   // Escape a string for use inside an OData single-quoted literal.
   function oDataStr(s) { return s.replace(/'/g, "''"); }
 
+  // ── Defender for Identity entity extraction ────────────────────────────────
+  // Pulls the security-relevant artifacts a Defender for Identity lab expects so
+  // checks can validate the *outcome* (and clearly flag what can only be
+  // verified on-prem). Generic over the lab text, not hard-coded to one lab.
+  function extractDfi(text) {
+    const grab = (patterns) => {
+      const set = new Set();
+      for (const p of patterns) {
+        p.lastIndex = 0;
+        let m;
+        while ((m = p.exec(text)) !== null) {
+          const v = (m[1] || "").trim();
+          // Drop PowerShell variable-name fragments (e.g. captured from
+          // `-Param $gMSA_HostsGroupName`) — these aren't real object names.
+          if (v && v.length <= 80 && !v.startsWith("$") && !/^(?:gMSA_|gmsa_)|(?:AccountName|GroupName|HostNames|HostsGroup)$/.test(v)) {
+            set.add(v);
+          }
+        }
+      }
+      return Array.from(set);
+    };
+
+    const gmsaAccounts = grab([
+      /\$gMSA_AccountName\s*=\s*['"]([^'"]+)['"]/gi,
+      /New-ADServiceAccount\s+-Name\s+['"]?([A-Za-z0-9_$-]{2,40})['"]?/gi,
+      /Get-ADServiceAccount\s+-Identity\s+['"]?([A-Za-z0-9_$-]{2,40})['"]?/gi,
+      /Directory\s+service\s+accounts?[^\n]*?Account\s+name[^\n]*?\*\*([A-Za-z0-9_-]{2,40})\*\*/gi,
+    ]).map((s) => s.replace(/\$$/, ""));
+
+    const gmsaGroups = grab([
+      /\$gMSA_HostsGroupName\s*=\s*['"]([^'"]+)['"]/gi,
+      /-PrincipalsAllowedToRetrieveManagedPassword\s+\$?([A-Za-z0-9_-]{2,40})/gi,
+    ]);
+
+    // Domain controllers / sensor host machines.
+    const sensorHosts = [];
+    {
+      const re = /\$gMSA_HostNames\s*=\s*['"]([^'"]+)['"]/gi;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        (m[1] || "").split(",").forEach((h) => {
+          const v = h.trim();
+          if (v) sensorHosts.push(v);
+        });
+      }
+    }
+
+    // MDI audit configurations applied via Set-MDIConfiguration.
+    const auditConfigs = grab([
+      /Set-MDIConfiguration\s+-Mode\s+\w+\s+-Configuration\s+([A-Za-z]+)/gi,
+    ]);
+
+    // Honeytoken accounts: the lab tags a decoy account as a honeytoken.
+    const requiresHoneytoken = /honeytoken/i.test(text);
+    const honeytokenAccounts = grab([
+      /\b(HoneyToken[A-Za-z0-9_]*)\b/g,
+    ]);
+
+    return {
+      gmsaAccounts,
+      gmsaGroups,
+      sensorHosts: Array.from(new Set(sensorHosts)),
+      auditConfigs,
+      requiresHoneytoken,
+      honeytokenAccounts,
+    };
+  }
+
+  function dfiHasAny(dfi) {
+    if (!dfi) return false;
+    return (
+      (dfi.gmsaAccounts || []).length ||
+      (dfi.gmsaGroups || []).length ||
+      (dfi.sensorHosts || []).length ||
+      (dfi.auditConfigs || []).length ||
+      dfi.requiresHoneytoken ||
+      (dfi.honeytokenAccounts || []).length
+    );
+  }
+
+  // Build a "not validated" result — the security outcome lives somewhere this
+  // browser-based tool can't reach (on-prem AD, local audit policy, a portal
+  // setting), or a required permission/scope is missing. We never silently pass
+  // these; we say exactly what we couldn't confirm and how to verify by hand.
+  function notValidated(o) {
+    return {
+      id: o.id,
+      name: o.name,
+      status: "not-validated",
+      msg: o.msg || "Could not be validated from the browser.",
+      checked: o.checked,
+      evidence: o.evidence,
+      why: o.why,
+      nextStep: o.nextStep,
+      labRef: o.labRef,
+      action: o.action,
+    };
+  }
+
+  async function getVmPowerState(vmId) {
+    try {
+      const data = await armGet(`${vmId}/instanceView?api-version=2023-07-01`);
+      const power = (data.statuses || []).find((s) => (s.code || "").startsWith("PowerState/"));
+      return power ? power.code.replace("PowerState/", "") : "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Defender for Identity — deep security validation
+  //
+  // This validates the *security outcome*, not just that a step happened:
+  //   • Sensors actually deployed, reporting, healthy, and mapped to the right
+  //     domain controllers (Microsoft Graph security API).
+  //   • Defender for Identity's own health issues (audit gaps, stale DCs,
+  //     outdated sensors, directory-service-account problems).
+  //   • The Azure lab environment (DC + workstation VMs) is actually running.
+  //
+  // Anything that lives only in on-prem AD (gMSA objects, DC group membership,
+  // local audit policy) or in the Defender portal (honeytoken entity tags) is
+  // returned as NOT VALIDATED with precise manual verification steps — never a
+  // silent pass.
+  // ──────────────────────────────────────────────────────────────────────────
+  async function runDefenderForIdentityChecks(lab) {
+    const dfi = lab.names.dfi || {};
+    const isDfiLab =
+      (lab.portals || []).includes("Microsoft Defender for Identity") || dfiHasAny(dfi);
+    if (!isDfiLab) return [];
+
+    const results = [];
+
+    // ── Fetch MDI sensors + health issues from the Graph security API ──────────
+    let sensors = null;
+    let sensorsErr = null;
+    try {
+      const s = await graphGet("/security/identities/sensors", true);
+      sensors = s.value || [];
+    } catch (e) {
+      sensorsErr = e;
+    }
+
+    let health = null;
+    let healthErr = null;
+    try {
+      const h = await graphGet("/security/identities/healthIssues", true);
+      health = h.value || [];
+    } catch (e) {
+      healthErr = e;
+    }
+
+    const scopeBlocked = (e) => e && (e.status === 401 || e.status === 403);
+    const notOnboarded = (e) =>
+      e && e.status === 403 && /not onboarded/i.test(e.body || e.message || "");
+    const lc = (s) => (s || "").toString().toLowerCase();
+    const openIssues = (health || []).filter((i) => lc(i.status) === "open");
+    const matchIssues = (re) =>
+      openIssues.filter(
+        (i) => re.test(i.displayName || "") || re.test(i.issueTypeId || "") || re.test(i.description || "")
+      );
+    const issueSummary = (issue) => {
+      const sev = lc(issue.severity) || "unknown";
+      const where = (issue.sensorDNSNames || issue.domainNames || []).join(", ");
+      return `${issue.displayName || issue.issueTypeId || "Health issue"} [${sev}${where ? " · " + where : ""}]`;
+    };
+
+    // ── 1. Sensor deployment + health (Task 1.3 / Validate the installation) ───
+    if (sensors !== null) {
+      if (sensors.length === 0) {
+        results.push({
+          id: "dfi-sensors",
+          name: "Defender for Identity sensors deployed",
+          status: "missing",
+          msg: "No Defender for Identity sensors are reporting in this tenant.",
+          checked: "Microsoft Graph security API for installed/reporting MDI sensors.",
+          evidence: "GET /security/identities/sensors returned zero sensors.",
+          why: "The lab requires an MDI sensor on the domain controller; with no sensor reporting, no detections can fire end-to-end.",
+          nextStep:
+            "Install the sensor on the DC (download from security.microsoft.com → Settings → Identities → Sensors → Add sensor), paste the access key, and confirm it shows Running.",
+          labRef: "Day 1 · Task 1.3: Add a new sensor / Validate the installation.",
+        });
+      } else {
+        const unhealthy = sensors.filter((s) => lc(s.healthStatus) && lc(s.healthStatus) !== "healthy");
+        const sensorList = sensors
+          .map((s) => `${s.displayName || s.id}${s.version ? " v" + s.version : ""} (${s.healthStatus || "?"})`)
+          .join(", ");
+        // Map expected DCs from the lab to the reporting sensors.
+        const expectedHosts = dfi.sensorHosts || [];
+        const reportingNames = sensors.map((s) => lc(s.displayName));
+        const missingHosts = expectedHosts.filter(
+          (h) => !reportingNames.some((n) => n.includes(lc(h)))
+        );
+        const sensorHealthIssues = matchIssues(/sensor|stopped communicating|outdated|not reachable|version|service/i);
+
+        let status = "pass";
+        const whyParts = [];
+        if (unhealthy.length) {
+          status = "fail";
+          whyParts.push(`${unhealthy.length} sensor(s) report a non-healthy status`);
+        }
+        if (missingHosts.length) {
+          status = "fail";
+          whyParts.push(`expected DC(s) not reporting a sensor: ${missingHosts.join(", ")}`);
+        }
+        if (sensorHealthIssues.length) {
+          status = status === "pass" ? "warn" : status;
+          whyParts.push(`${sensorHealthIssues.length} open sensor health issue(s)`);
+        }
+        results.push({
+          id: "dfi-sensors",
+          name: "Defender for Identity sensors deployed & healthy",
+          status,
+          msg:
+            status === "pass"
+              ? `All ${sensors.length} sensor(s) healthy.`
+              : "Sensor deployment is not fully healthy.",
+          checked: "Sensor inventory, version, health status, and DC mapping via the Graph security API.",
+          evidence: `Sensors: ${sensorList}.` + (sensorHealthIssues.length ? ` Open issues: ${sensorHealthIssues.map(issueSummary).join("; ")}.` : ""),
+          why:
+            status === "pass"
+              ? "Sensors are installed, reporting, on a current version, and cover the expected domain controller(s)."
+              : whyParts.join("; ") + ".",
+          nextStep:
+            status === "pass"
+              ? "No action — sensors are operational."
+              : "In security.microsoft.com → Settings → Identities → Sensors, restart/upgrade unhealthy sensors and install a sensor on any missing DC, then confirm Running + Up to date.",
+          labRef: "Day 1 · Task 1.3: Add a new sensor / Validate the installation.",
+        });
+      }
+    } else if (notOnboarded(sensorsErr)) {
+      results.push({
+        id: "dfi-sensors",
+        name: "Defender for Identity sensors deployed & healthy",
+        status: "fail",
+        msg: "This tenant is not onboarded to Microsoft Defender for Identity.",
+        checked: "GET /security/identities/sensors (Microsoft Graph beta).",
+        evidence:
+          "Graph returned 403: \"Tenant is not onboarded to Microsoft Defender for Identity. After license is purchased, first login to portal and sensor are required.\"",
+        why: "MDI onboarding plus at least one reporting sensor is the lab's core deliverable; with no MDI instance, no sensors exist and no detections can fire.",
+        nextStep:
+          "Ensure a Defender for Identity license is assigned, sign in to security.microsoft.com → Settings → Identities once to initialize the workspace, then install a sensor on the DC and confirm it shows Running.",
+        labRef: "Day 1 · Task 1.3: Add a new sensor / Validate the installation.",
+      });
+    } else if (scopeBlocked(sensorsErr)) {
+      results.push(
+        notValidated({
+          id: "dfi-sensors",
+          name: "Defender for Identity sensors deployed & healthy",
+          msg: "Sensor inventory could not be read — missing security permission.",
+          checked: "GET /security/identities/sensors (Microsoft Graph beta).",
+          evidence: `Graph returned ${sensorsErr.status}. The app registration lacks SecurityIdentitiesSensors.Read.All (admin consent), or your account isn't a Security Reader/Admin.`,
+          why: "Without this permission the tool cannot confirm sensors are deployed and healthy, so it will not assume they are.",
+          nextStep:
+            "Have a Global Admin grant admin consent (Settings → grant consent) so SecurityIdentitiesSensors.Read.All is approved, then re-run. To verify manually: security.microsoft.com → Settings → Identities → Sensors → each DC shows Running and Up to date.",
+          labRef: "Day 1 · Task 1.3: Add a new sensor / Validate the installation.",
+        })
+      );
+    } else {
+      results.push(
+        notValidated({
+          id: "dfi-sensors",
+          name: "Defender for Identity sensors deployed & healthy",
+          msg: "Sensor inventory endpoint was not reachable.",
+          checked: "GET /security/identities/sensors (Microsoft Graph beta).",
+          evidence: sensorsErr ? sensorsErr.message : "No response.",
+          why: "The MDI sensors API did not return data (the workspace may not be initialized yet, or the API is unavailable in this tenant).",
+          nextStep:
+            "Verify manually in security.microsoft.com → Settings → Identities → Sensors that each domain controller sensor shows Running and Up to date.",
+          labRef: "Day 1 · Task 1.3: Add a new sensor / Validate the installation.",
+        })
+      );
+    }
+
+    // ── 2. Defender for Identity service health issues ─────────────────────────
+    if (health !== null) {
+      const nonSensor = openIssues.filter(
+        (i) => !/sensor|stopped communicating|outdated|not reachable|version/i.test(i.displayName || "")
+      );
+      const high = openIssues.filter((i) => lc(i.severity) === "high");
+      if (openIssues.length === 0) {
+        results.push({
+          id: "dfi-health",
+          name: "Defender for Identity health issues",
+          status: "pass",
+          msg: "No open Defender for Identity health issues.",
+          checked: "GET /security/identities/healthIssues (open issues across global + sensor scope).",
+          evidence: "0 open health issues reported by Defender for Identity.",
+          why: "Defender for Identity itself reports the deployment as healthy with no outstanding configuration or connectivity problems.",
+          nextStep: "No action.",
+          labRef: "Day 1 · Validate the installation.",
+        });
+      } else {
+        results.push({
+          id: "dfi-health",
+          name: "Defender for Identity health issues",
+          status: high.length ? "fail" : "warn",
+          msg: `${openIssues.length} open health issue(s)${high.length ? ` (${high.length} high severity)` : ""}.`,
+          checked: "GET /security/identities/healthIssues (open issues across global + sensor scope).",
+          evidence: openIssues.slice(0, 8).map(issueSummary).join("; "),
+          why: "Open health issues mean part of the deployment isn't working as intended; these would suppress or degrade detections.",
+          nextStep:
+            "Open each issue in security.microsoft.com → Settings → Identities → Health issues and apply the listed remediation, then confirm it clears.",
+          labRef: "Day 1 · Validate the installation.",
+        });
+      }
+    } else if (notOnboarded(healthErr)) {
+      results.push({
+        id: "dfi-health",
+        name: "Defender for Identity health issues",
+        status: "fail",
+        msg: "Health status is unavailable because the tenant isn't onboarded to Defender for Identity.",
+        checked: "GET /security/identities/healthIssues (Microsoft Graph beta).",
+        evidence:
+          "Graph returned 403: tenant is not onboarded to Microsoft Defender for Identity (same root cause as the sensors check).",
+        why: "Health data only exists once MDI is onboarded and a sensor is reporting; until then the deployment cannot be confirmed working.",
+        nextStep:
+          "Complete MDI onboarding and sensor installation (see the sensors check above), then re-run — Health issues should be empty.",
+        labRef: "Day 1 · Validate the installation.",
+      });
+    } else if (scopeBlocked(healthErr)) {
+      results.push(
+        notValidated({
+          id: "dfi-health",
+          name: "Defender for Identity health issues",
+          msg: "Health issues could not be read — missing security permission.",
+          checked: "GET /security/identities/healthIssues (Microsoft Graph beta).",
+          evidence: `Graph returned ${healthErr.status}; SecurityIdentitiesHealth.Read.All is not consented or your role lacks access.`,
+          why: "Without health data the tool cannot confirm the deployment is actually working, so it will not assume success.",
+          nextStep:
+            "Grant admin consent for SecurityIdentitiesHealth.Read.All and re-run. Manual check: security.microsoft.com → Settings → Identities → Health issues should be empty.",
+          labRef: "Day 1 · Validate the installation.",
+        })
+      );
+    } else {
+      results.push(
+        notValidated({
+          id: "dfi-health",
+          name: "Defender for Identity health issues",
+          msg: "Health issues endpoint was not reachable.",
+          checked: "GET /security/identities/healthIssues (Microsoft Graph beta).",
+          evidence: healthErr ? healthErr.message : "No response.",
+          why: "The MDI health API did not return data (workspace may still be initializing).",
+          nextStep: "Check security.microsoft.com → Settings → Identities → Health issues manually.",
+          labRef: "Day 1 · Validate the installation.",
+        })
+      );
+    }
+
+    // ── 3. Audit policy configuration (Task 1.4) ───────────────────────────────
+    if (dfi.auditConfigs && dfi.auditConfigs.length) {
+      const auditIssues = health !== null ? matchIssues(/audit|advanced audit|ntlm|directory services|configuration container/i) : [];
+      if (health !== null && auditIssues.length) {
+        results.push({
+          id: "dfi-audit",
+          name: "Active Directory audit policy configuration",
+          status: "fail",
+          msg: `${auditIssues.length} audit-related health issue(s) reported by Defender for Identity.`,
+          checked: "MDI health issues cross-referenced against the audit policies the lab configures via Set-MDIConfiguration.",
+          evidence: auditIssues.map(issueSummary).join("; "),
+          why: "Defender for Identity reports that required Windows/AD advanced auditing isn't fully applied, so the related detections won't fire.",
+          nextStep:
+            "On the DC run New-MDIConfigurationReport -Path C:\\Reports -Mode Domain -OpenHtmlReport, then Set-MDIConfiguration for each failing item until every entry shows Passed.",
+          labRef: "Day 1 · Task 1.4: Configure audit policies in AD environment.",
+        });
+      } else if (health !== null) {
+        results.push({
+          id: "dfi-audit",
+          name: "Active Directory audit policy configuration",
+          status: "pass",
+          msg: "Defender for Identity reports no outstanding audit-policy gaps.",
+          checked: "MDI health issues for audit/NTLM/advanced-auditing gaps, against the lab's expected configurations.",
+          evidence: `Expected configs: ${dfi.auditConfigs.join(", ")}. No matching open MDI health issues.`,
+          why: "MDI surfaces missing advanced auditing as health issues; none are open, so the required auditing appears applied.",
+          nextStep:
+            "For full confirmation, run New-MDIConfigurationReport on the DC and verify every item shows Passed.",
+          labRef: "Day 1 · Task 1.4: Configure audit policies in AD environment.",
+        });
+      } else {
+        results.push(
+          notValidated({
+            id: "dfi-audit",
+            name: "Active Directory audit policy configuration",
+            msg: "Audit policy state lives on the domain controller and can't be read from the browser.",
+            checked: "Expected MDI audit configurations parsed from the lab.",
+            evidence: `Expected configs: ${dfi.auditConfigs.join(", ")}.`,
+            why: "Advanced audit policy and NTLM/object auditing are local AD/GPO settings on the DC, not exposed to Microsoft Graph.",
+            nextStep:
+              "On the DC run: New-MDIConfigurationReport -Path C:\\Reports -Mode Domain -OpenHtmlReport — every item must show Passed. Fix gaps with Set-MDIConfiguration -Mode Domain -Configuration <Name>.",
+            labRef: "Day 1 · Task 1.4: Configure audit policies in AD environment.",
+          })
+        );
+      }
+    }
+
+    // ── 4. gMSA / Directory Services Account (Task 1.5 & 1.6) ──────────────────
+    if ((dfi.gmsaAccounts && dfi.gmsaAccounts.length) || (dfi.gmsaGroups && dfi.gmsaGroups.length)) {
+      const dsaIssues = health !== null ? matchIssues(/directory service|credential|gmsa|service account/i) : [];
+      const acct = (dfi.gmsaAccounts || [])[0] || "mdiSvc01";
+      const grp = (dfi.gmsaGroups || [])[0] || "mdiSvc01Group";
+      const dc = (dfi.sensorHosts || [])[0] || "DC01";
+      if (health !== null && dsaIssues.length) {
+        results.push({
+          id: "dfi-gmsa",
+          name: "gMSA / Directory Services Account usable",
+          status: "fail",
+          msg: "Defender for Identity reports a directory-service-account problem.",
+          checked: "MDI health issues for directory service account / credential problems.",
+          evidence: dsaIssues.map(issueSummary).join("; "),
+          why: "The gMSA exists but MDI cannot use it (wrong group membership, missing 'Log on as a service', or password retrieval blocked), so the sensor can't read AD.",
+          nextStep: `On ${dc} run: Get-ADServiceAccount -Identity '${acct}' -Properties PrincipalsAllowedToRetrieveManagedPassword; confirm Get-ADGroupMember '${grp}' contains ${dc}$; verify the 'Log on as a service' GPO and the Directory service account in security.microsoft.com → Settings → Identities.`,
+          labRef: "Day 1 · Task 1.5 (Create the gMSA) & Task 1.6 (Configure Group Policy / Directory service accounts).",
+        });
+      } else {
+        results.push(
+          notValidated({
+            id: "dfi-gmsa",
+            name: "gMSA / Directory Services Account usable",
+            msg: "gMSA usability is an on-prem AD outcome the browser can't verify.",
+            checked: `Expected gMSA "${acct}" and host group "${grp}" parsed from the lab.`,
+            evidence:
+              health !== null
+                ? "No directory-service-account health issues reported by MDI, but that doesn't confirm the gMSA can actually retrieve its password."
+                : "MDI health data unavailable.",
+            why: "gMSA objects, the host group's membership, KDS root key, deleted-objects-container permissions, and 'Log on as a service' all live in on-prem AD, which Microsoft Graph doesn't expose.",
+            nextStep: `On ${dc} run: Test-ADServiceAccount '${acct}' (expect True); Get-ADServiceAccount '${acct}' -Properties PrincipalsAllowedToRetrieveManagedPassword; Get-ADGroupMember '${grp}' must list ${dc}$. Confirm the Directory service account '${acct}' is added under Settings → Identities and is healthy.`,
+            labRef: "Day 1 · Task 1.5 (Create the gMSA) & Task 1.6 (Configure Group Policy / Directory service accounts).",
+          })
+        );
+      }
+    }
+
+    // ── 5. Honeytoken accounts (Task 4.3) ──────────────────────────────────────
+    if (dfi.requiresHoneytoken) {
+      const accts = (dfi.honeytokenAccounts || []);
+      results.push(
+        notValidated({
+          id: "dfi-honeytoken",
+          name: "Honeytoken account tagged for detection",
+          msg: "Honeytoken entity tags live in the Defender portal and aren't exposed to Graph.",
+          checked: "Lab requires a honeytoken decoy account to be tagged in Defender for Identity.",
+          evidence: accts.length ? `Candidate honeytoken account(s): ${accts.join(", ")}.` : "Honeytoken requirement detected in the lab text.",
+          why: "Entity tags (Honeytoken/Sensitive/Exchange) are stored in the Defender for Identity configuration, which the Microsoft Graph delegated APIs used here don't return.",
+          nextStep: `In security.microsoft.com → Settings → Identities → Entity tags → Honeytoken, confirm ${accts.length ? "'" + accts[0] + "'" : "the decoy account"} is tagged. Test by signing in as that account and confirming a Honeytoken activity alert fires.`,
+          labRef: "Day 2 · Task 4.3: Honeytoken activity.",
+        })
+      );
+    }
+
+    // ── 6. Lab environment health — DC + workstation VMs running (req: usable) ──
+    if ((dfi.sensorHosts && dfi.sensorHosts.length) || /\bWIN\d+\b|\bDC0?1\b/.test(lab.rawText)) {
+      let subs = null;
+      try {
+        subs = await listAllSubscriptions();
+      } catch {
+        subs = null;
+      }
+      if (subs && subs.length) {
+        const vms = [];
+        for (const sub of subs) {
+          try {
+            const items = await listResourcesOfType(sub.id, "Microsoft.Compute/virtualMachines");
+            for (const v of items) vms.push(v);
+          } catch {
+            /* ignore one sub */
+          }
+        }
+        const labVms = vms.filter((v) => /^DC0?\d|^WIN\d+/i.test(v.name));
+        if (labVms.length === 0) {
+          results.push({
+            id: "dfi-env",
+            name: "Lab environment (DC + workstations) deployed",
+            status: "missing",
+            msg: "No domain controller / workstation VMs found in accessible subscriptions.",
+            checked: "Azure Resource Manager for the lab's DC and WIN* virtual machines.",
+            evidence: vms.length ? `Found ${vms.length} VM(s) but none named like DC*/WIN*.` : "No VMs found.",
+            why: "Without the DC and workstation VMs, the sensor has nothing to monitor and the attack simulations can't run.",
+            nextStep: "Deploy the lab environment (Microsoft-Sentinel2Go template) and confirm DC01/WIN5/WIN6 exist and are running.",
+            labRef: "Day 1 · Task 1.1: Configure the Azure environment.",
+          });
+        } else {
+          const states = [];
+          for (const v of labVms) states.push({ name: v.name, state: await getVmPowerState(v.id) });
+          const stopped = states.filter((s) => s.state !== "running");
+          results.push({
+            id: "dfi-env",
+            name: "Lab environment (DC + workstations) running",
+            status: stopped.length ? "warn" : "pass",
+            msg: stopped.length ? `${stopped.length} lab VM(s) not running.` : `All ${states.length} lab VM(s) running.`,
+            checked: "Power state of the DC and workstation VMs via Azure Resource Manager.",
+            evidence: states.map((s) => `${s.name}: ${s.state}`).join(", "),
+            why: stopped.length
+              ? "Stopped VMs mean the sensor, DC, or attack workstations are offline, so detections can't be exercised end-to-end."
+              : "The domain controller and workstations are powered on and usable.",
+            nextStep: stopped.length ? "Start the stopped VMs in the Azure portal before running the lab exercises." : "No action.",
+            labRef: "Day 1 · Task 1.1: Configure the Azure environment.",
+          });
+        }
+      }
+      // If ARM isn't consented, runAzureChecks already emits the grant-access
+      // action, so we don't duplicate a not-validated row here.
+    }
+
+    return results;
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // Entra named-entity checks (groups, users, CA policies, app registrations)
   // ──────────────────────────────────────────────────────────────────────────
@@ -1479,75 +1999,179 @@
 
     const results = [];
 
-    // Groups
+    // Groups — existence is not enough: a security group with no members can't
+    // actually grant access, so an empty group is only a warning.
     for (const name of entra.groups || []) {
       try {
-        const d = await graphGet(`/groups?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,groupTypes`);
+        const d = await graphGet(`/groups?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,groupTypes,securityEnabled`);
         const hit = (d.value || [])[0];
+        if (!hit) {
+          results.push({
+            id: `entra-group-${slug(name)}`,
+            name: `Entra group "${name}"`,
+            status: "fail",
+            msg: "Group not found in directory.",
+            checked: "Directory for a group with this display name.",
+            evidence: "No group matched the display name.",
+            why: "The group the lab asks you to create does not exist, so nothing downstream that targets it can work.",
+            nextStep: "Create the group in Entra ID → Groups exactly as the lab specifies.",
+          });
+          continue;
+        }
+        let memberCount = null;
+        try {
+          const mem = await graphGet(`/groups/${hit.id}/members?$select=id&$top=20`);
+          memberCount = (mem.value || []).length;
+        } catch { /* membership read may be blocked; leave null */ }
+        const isM365 = (hit.groupTypes || []).includes("Unified");
+        const empty = memberCount === 0;
         results.push({
           id: `entra-group-${slug(name)}`,
           name: `Entra group "${name}"`,
-          status: hit ? "pass" : "fail",
-          msg: hit
-            ? `Found · ${(hit.groupTypes || []).includes("Unified") ? "Microsoft 365" : "Security"} group`
-            : "Group not found in directory.",
+          status: empty ? "warn" : "pass",
+          msg: empty ? "Found, but has no members." : "Found and populated.",
+          checked: "Group existence, type, and membership.",
+          evidence: `${isM365 ? "Microsoft 365" : "Security"} group · ${memberCount === null ? "membership not readable" : memberCount + (memberCount === 20 ? "+" : "") + " member(s)"}.`,
+          why: empty
+            ? "The group exists but is empty, so any access or policy that relies on its membership won't take effect."
+            : "The group exists and contains members, so membership-based access/policy can apply.",
+          nextStep: empty ? "Add the expected members to the group as the lab describes." : "No action.",
         });
       } catch (e) {
-        results.push({ id: `entra-group-${slug(name)}`, name: `Entra group "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
+        results.push({ id: `entra-group-${slug(name)}`, name: `Entra group "${name}"`, status: "warn", msg: `Could not check: ${e.message}`, why: "The directory query failed.", nextStep: "Re-run after confirming Directory.Read.All consent." });
       }
     }
 
-    // Users — requires ConsistencyLevel: eventual header for displayName $filter
+    // Users — existence + whether the account is actually enabled/usable.
     for (const name of entra.users || []) {
       try {
         const token = await getToken(["https://graph.microsoft.com/.default"]);
         const resp = await fetch(
-          `https://graph.microsoft.com/v1.0/users?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,userPrincipalName&$count=true`,
+          `https://graph.microsoft.com/v1.0/users?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,userPrincipalName,accountEnabled&$count=true`,
           { headers: { Authorization: "Bearer " + token, ConsistencyLevel: "eventual" } }
         );
         const d = resp.ok ? await resp.json() : { value: [] };
         const hit = (d.value || [])[0];
+        if (!hit) {
+          results.push({
+            id: `entra-user-${slug(name)}`,
+            name: `Entra user "${name}"`,
+            status: "fail",
+            msg: "User not found in directory.",
+            checked: "Directory for a user with this display name.",
+            evidence: "No matching user.",
+            why: "The account the lab asks you to create is missing.",
+            nextStep: "Create the user in Entra ID → Users as the lab specifies.",
+          });
+          continue;
+        }
         results.push({
           id: `entra-user-${slug(name)}`,
           name: `Entra user "${name}"`,
-          status: hit ? "pass" : "fail",
-          msg: hit ? `Found · ${hit.userPrincipalName}` : "User not found in directory.",
+          status: hit.accountEnabled === false ? "warn" : "pass",
+          msg: hit.accountEnabled === false ? "Found, but the account is disabled." : `Found · ${hit.userPrincipalName}`,
+          checked: "User existence and account-enabled state.",
+          evidence: `${hit.userPrincipalName} · accountEnabled: ${hit.accountEnabled}`,
+          why: hit.accountEnabled === false ? "A disabled account can't sign in, so it can't be used in the lab scenario." : "The account exists and is enabled.",
+          nextStep: hit.accountEnabled === false ? "Enable the account in Entra ID → Users." : "No action.",
         });
       } catch (e) {
         results.push({ id: `entra-user-${slug(name)}`, name: `Entra user "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
       }
     }
 
-    // Conditional Access policies
+    // Conditional Access — must be enabled AND have conditions + grant controls
+    // to actually enforce anything. Report-only / disabled is not a pass.
     for (const name of entra.caPolicies || []) {
       try {
-        const d = await graphGet(`/identity/conditionalAccess/policies?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,state`);
+        const d = await graphGet(`/identity/conditionalAccess/policies?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,state,conditions,grantControls`);
         const hit = (d.value || [])[0];
+        if (!hit) {
+          results.push({
+            id: `entra-ca-${slug(name)}`,
+            name: `Conditional Access policy "${name}"`,
+            status: "fail",
+            msg: "Policy not found.",
+            checked: "Conditional Access policies by display name.",
+            evidence: "No matching policy.",
+            why: "The policy the lab asks you to create doesn't exist, so it enforces nothing.",
+            nextStep: "Create it in Entra ID → Protection → Conditional Access.",
+          });
+          continue;
+        }
+        const hasControls = !!(hit.grantControls && ((hit.grantControls.builtInControls || []).length || (hit.grantControls.customAuthenticationFactors || []).length || hit.grantControls.termsOfUse));
+        const hasAssignments = !!(hit.conditions && hit.conditions.users && ((hit.conditions.users.includeUsers || []).length || (hit.conditions.users.includeGroups || []).length || (hit.conditions.users.includeRoles || []).length));
+        let status = "warn";
+        let why = "";
+        if (hit.state === "enabled" && hasControls && hasAssignments) {
+          status = "pass";
+          why = "The policy is enabled and has both target assignments and grant controls, so it actively enforces the intended security outcome.";
+        } else if (hit.state !== "enabled") {
+          status = "warn";
+          why = `The policy exists but is in '${hit.state}' state, so it is not enforcing anything yet.`;
+        } else {
+          status = "warn";
+          why = "The policy is enabled but is missing user/group assignments or grant controls, so it has no real effect.";
+        }
         results.push({
           id: `entra-ca-${slug(name)}`,
           name: `Conditional Access policy "${name}"`,
-          status: hit ? (hit.state === "enabled" ? "pass" : "warn") : "fail",
-          msg: hit
-            ? `Found · state: ${hit.state}`
-            : "Policy not found. Create it in Entra ID → Security → Conditional Access.",
+          status,
+          msg: `Found · state: ${hit.state}`,
+          checked: "Policy state, target assignments, and grant controls.",
+          evidence: `state=${hit.state}; assignments=${hasAssignments ? "yes" : "none"}; grantControls=${hasControls ? "yes" : "none"}.`,
+          why,
+          nextStep: status === "pass" ? "No action." : "Set the policy to 'On', assign target users/groups, and configure grant controls.",
         });
       } catch (e) {
         results.push({ id: `entra-ca-${slug(name)}`, name: `CA policy "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
       }
     }
 
-    // App registrations
+    // App registrations — existence + a usable enterprise app (service
+    // principal) + credentials/permissions, since an app with none of those
+    // can't authenticate or call anything.
     for (const name of entra.appRegistrations || []) {
       try {
-        const d = await graphGet(`/applications?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,appId`);
+        const d = await graphGet(`/applications?$filter=displayName eq '${oDataStr(name)}'&$select=id,displayName,appId,passwordCredentials,keyCredentials,requiredResourceAccess`);
         const hit = (d.value || [])[0];
+        if (!hit) {
+          results.push({
+            id: `entra-app-${slug(name)}`,
+            name: `App registration "${name}"`,
+            status: "fail",
+            msg: "App registration not found.",
+            checked: "App registrations by display name.",
+            evidence: "No matching application.",
+            why: "The app the lab asks you to register doesn't exist.",
+            nextStep: "Register it in Entra ID → App registrations.",
+          });
+          continue;
+        }
+        const now = Date.now();
+        const validSecrets = (hit.passwordCredentials || []).filter((c) => !c.endDateTime || new Date(c.endDateTime).getTime() > now).length;
+        const validCerts = (hit.keyCredentials || []).filter((c) => !c.endDateTime || new Date(c.endDateTime).getTime() > now).length;
+        const permCount = (hit.requiredResourceAccess || []).reduce((n, r) => n + (r.resourceAccess || []).length, 0);
+        let spExists = null;
+        try {
+          const sp = await graphGet(`/servicePrincipals?$filter=appId eq '${oDataStr(hit.appId)}'&$select=id,accountEnabled`);
+          spExists = (sp.value || [])[0] || null;
+        } catch { /* ignore */ }
+        const issues = [];
+        if (spExists === null) issues.push("enterprise app (service principal) not provisioned");
+        if (validSecrets + validCerts === 0) issues.push("no valid client secret or certificate");
+        const status = issues.length ? "warn" : "pass";
         results.push({
           id: `entra-app-${slug(name)}`,
           name: `App registration "${name}"`,
-          status: hit ? "pass" : "fail",
-          msg: hit
-            ? `Found · client ID: ${hit.appId}`
-            : "App registration not found. Register it in Entra ID → App registrations.",
+          status,
+          msg: status === "pass" ? "Found and usable." : "Found, but not fully usable.",
+          checked: "App existence, service principal, credentials, and API permissions.",
+          evidence: `client ID ${hit.appId} · secrets:${validSecrets} certs:${validCerts} · API permissions:${permCount} · SP:${spExists ? "present" : "missing"}.`,
+          why: status === "pass"
+            ? "The app exists, has a service principal, and holds valid credentials, so it can authenticate and call its configured APIs."
+            : `The app exists but ${issues.join(" and ")}, so it can't authenticate or be granted access end-to-end.`,
+          nextStep: status === "pass" ? "No action." : "Add a client secret/certificate and ensure the enterprise application (service principal) and required API permissions (with admin consent) are in place.",
         });
       } catch (e) {
         results.push({ id: `entra-app-${slug(name)}`, name: `App registration "${name}"`, status: "warn", msg: `Could not check: ${e.message}` });
@@ -1762,6 +2386,7 @@
     const ado = lab.names.ado || {};
     const entra = lab.names.entra || {};
     const intune = lab.names.intune || {};
+    const dfi = lab.names.dfi || {};
     const hasAnyName =
       lab.names.agents.length ||
       lab.names.pools.length ||
@@ -1771,7 +2396,8 @@
       Object.values(gh).some((v) => v && v.length) ||
       Object.values(ado).some((v) => v && v.length) ||
       Object.values(entra).some((v) => v && v.length) ||
-      Object.values(intune).some((v) => v && v.length);
+      Object.values(intune).some((v) => v && v.length) ||
+      dfiHasAny(dfi);
     if (!hasAnyName) {
       named.innerHTML = `<p class="muted">No named resources detected.</p>`;
     } else {
@@ -1791,6 +2417,12 @@
       parts.push(row("Intune compliance policies", intune.compliancePolicies));
       parts.push(row("Intune config profiles", intune.configProfiles));
       parts.push(row("Intune app protection policies", intune.appProtectionPolicies));
+      // Defender for Identity
+      parts.push(row("MDI gMSA service accounts", dfi.gmsaAccounts));
+      parts.push(row("MDI gMSA host groups", dfi.gmsaGroups));
+      parts.push(row("MDI sensor hosts (DCs)", dfi.sensorHosts));
+      parts.push(row("MDI audit configurations", dfi.auditConfigs));
+      parts.push(row("Honeytoken accounts", dfi.honeytokenAccounts));
       // SharePoint
       if ((lab.names.spSites || []).length) parts.push(row("SharePoint sites", lab.names.spSites));
       // Azure
@@ -1824,7 +2456,7 @@
   }
 
   function renderResults(results) {
-    const cnt = { pass: 0, warn: 0, fail: 0, skip: 0 };
+    const cnt = { pass: 0, warn: 0, fail: 0, skip: 0, "not-validated": 0, missing: 0 };
     const list = $("results-list");
     list.innerHTML = "";
     results.forEach((r) => {
@@ -1834,25 +2466,42 @@
       const actionHtml = r.action
         ? `<button class="secondary" data-action="${escape(r.action.handler)}" style="margin-top:6px;">${escape(r.action.label)}</button>`
         : "";
-      // For non-pass results, try to pull the matching lab step(s) so the user
-      // sees exactly what they were supposed to do.
-      let hintHtml = "";
-      if (r.status === "fail" || r.status === "warn") {
+
+      // Explainable review block: what was checked, evidence, why, next step,
+      // and the lab step it maps to. Each field is optional; legacy checks that
+      // only set `msg` still render fine.
+      const reviewLines = [];
+      if (r.checked) reviewLines.push(`<div class="ln"><span class="k">Checked</span>${escape(r.checked)}</div>`);
+      if (r.evidence) reviewLines.push(`<div class="ln"><span class="k">Evidence</span>${escape(r.evidence)}</div>`);
+      if (r.why) reviewLines.push(`<div class="ln why"><span class="k">Why</span>${escape(r.why)}</div>`);
+      if (r.nextStep) reviewLines.push(`<div class="ln next"><span class="k">Next</span>${escape(r.nextStep)}</div>`);
+
+      // Lab step mapping: prefer an explicit labRef, else fall back to the
+      // heuristic matcher for fail/warn/missing/not-validated rows.
+      let refHtml = "";
+      if (r.labRef) {
+        refHtml = `<div class="ln ref"><span class="k">Lab step</span>${escape(r.labRef)}</div>`;
+      } else if (["fail", "warn", "missing", "not-validated"].includes(r.status)) {
         const hints = findRelevantSteps(r, lab);
         if (hints.length) {
-          hintHtml =
-            `<details class="hint" style="margin-top:8px;">` +
-            `<summary style="cursor:pointer;color:var(--accent-2);">📖 What the lab says to do (${hints.length})</summary>` +
+          refHtml =
+            `<details class="hint" style="margin-top:4px;">` +
+            `<summary style="cursor:pointer;color:var(--accent-2);font-size:0.82rem;">📖 What the lab says to do (${hints.length})</summary>` +
             `<ul style="margin:6px 0 0 1.1rem;padding:0;">` +
-            hints.map((h) => `<li style="margin:4px 0;">${escape(h)}</li>`).join("") +
+            hints.map((h) => `<li style="margin:4px 0;font-size:0.82rem;">${escape(h)}</li>`).join("") +
             `</ul></details>`;
         }
       }
+      const reviewHtml = (reviewLines.length || refHtml || actionHtml)
+        ? `<div class="review">${reviewLines.join("")}${refHtml}${actionHtml}</div>`
+        : "";
+
       row.innerHTML = `
         <span class="pill ${pillClass(r.status)}">${pillLabel(r.status)}</span>
         <span class="name">${escape(r.name)}</span>
         <span></span>
-        <span class="msg">${escape(r.msg || "")}${actionHtml ? "<br>" + actionHtml : ""}${hintHtml}</span>
+        <span class="msg">${escape(r.msg || "")}</span>
+        ${reviewHtml}
       `;
       list.appendChild(row);
     });
@@ -1866,6 +2515,8 @@
     $("cnt-pass").textContent = cnt.pass || 0;
     $("cnt-warn").textContent = cnt.warn || 0;
     $("cnt-fail").textContent = cnt.fail || 0;
+    $("cnt-missing").textContent = cnt.missing || 0;
+    $("cnt-notvalidated").textContent = cnt["not-validated"] || 0;
     $("cnt-skip").textContent = cnt.skip || 0;
     show("panel-results");
   }
@@ -1874,10 +2525,19 @@
     if (s === "pass") return "pass";
     if (s === "warn") return "warn";
     if (s === "fail") return "fail";
+    if (s === "missing") return "missing";
+    if (s === "not-validated") return "notvalidated";
     return "info";
   }
   function pillLabel(s) {
-    return ({ pass: "PASS", warn: "WARN", fail: "FAIL", skip: "SKIP" }[s]) || s.toUpperCase();
+    return ({
+      pass: "PASS",
+      warn: "WARN",
+      fail: "FAIL",
+      skip: "SKIP",
+      missing: "EXPECTED MISSING",
+      "not-validated": "NOT VALIDATED",
+    }[s]) || s.toUpperCase();
   }
 
   function escape(s) {
@@ -1943,21 +2603,34 @@
 
   $("btn-grant-consent").addEventListener("click", () => {
     showError("");
-    // Use /organizations so the user picks (or is already in) any work tenant,
-    // and we don't need a tenant id up front. scope=.default lets AAD prompt
-    // the GA for *all* statically-configured Graph permissions in one shot.
+    // Pin the consent request to the tenant the user is actually signed in to
+    // (the tenant being checked), so the grant lands in the right place and we
+    // never silently reuse a cached session for the app's home ("lab checker")
+    // tenant. Fall back to /organizations only if we can't resolve a tenant.
+    // prompt=select_account forces the Global Admin to pick the correct account
+    // instead of AAD auto-using whatever session happens to be cached — the root
+    // cause of testers seeing "this app needs admin approval" for the wrong tenant.
+    const account = getActiveAccount();
+    const tenantId =
+      (account && (account.tenantId || (account.idTokenClaims && account.idTokenClaims.tid))) ||
+      "organizations";
     const redirectUri =
       location.origin +
       location.pathname.replace(/[^/]*$/, "") +
       "auth-redirect.html";
     const url =
-      "https://login.microsoftonline.com/organizations/v2.0/adminconsent" +
+      `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/v2.0/adminconsent` +
       `?client_id=${encodeURIComponent(CLIENT_ID)}` +
       `&scope=${encodeURIComponent("https://graph.microsoft.com/.default")}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&prompt=select_account` +
       `&state=lab-check-bot-graph`;
     showInfo(
-      "Opening Microsoft admin-consent page in a new tab. After a Global Admin clicks Accept, come back here and click 'Re-check status' (or sign out and back in if it still shows Not granted)."
+      "Opening the Microsoft admin-consent page in a new tab. You must pick a " +
+      "Global Administrator account for the tenant you're checking. If you see " +
+      "\"needs admin approval,\" the account you chose isn't a Global Admin in " +
+      "that tenant — pick a different account. After consent, come back and click " +
+      "'Re-check status' (or sign out and back in if it still shows Not granted)."
     );
     window.open(url, "_blank", "noopener");
   });
@@ -2054,6 +2727,8 @@
       results.push(...cs);
       const entraR = await runEntraNamedChecks(lab);
       results.push(...entraR);
+      const dfiR = await runDefenderForIdentityChecks(lab);
+      results.push(...dfiR);
       const intuneR = await runIntuneNamedChecks(lab);
       results.push(...intuneR);
       const spR = await runSharePointChecks(lab);
@@ -2252,7 +2927,7 @@
       setConsentUi(
         "missing",
         looksLikeConsent
-          ? "Either admin consent isn't granted yet, or your current sign-in session predates it. Try the buttons below: 'Grant admin consent' (GA only) and then 'Re-sign in' to refresh your session with the newly-consented scopes."
+          ? "Either admin consent isn't granted yet, or your current sign-in session predates it. Click 'Grant admin consent' below and pick a Global Administrator account for THIS tenant — if the Microsoft page says \"needs admin approval,\" the account you picked isn't a Global Admin. Then click 'Re-sign in' to refresh your session with the newly-consented scopes."
           : `Could not verify consent (${msg}). Try the button below, or 'Re-check status'.`
       );
     }

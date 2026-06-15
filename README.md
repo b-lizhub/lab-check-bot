@@ -38,6 +38,8 @@ You can also just double-click `index.html`, but using `http://localhost:5173` m
    - `RoleManagement.Read.Directory`
    - `DeviceManagementServiceConfig.Read.All`
    - `DeviceManagementConfiguration.Read.All`
+   - `SecurityIdentitiesSensors.Read.All` (Defender for Identity sensor inventory/health)
+   - `SecurityIdentitiesHealth.Read.All` (Defender for Identity health issues)
 6. (Optional, for Copilot Studio agent name verification) API permissions (delegated, **Dynamics CRM** → `user_impersonation`).
 7. (Optional, for Azure resource verification) API permissions (delegated, **Azure Service Management** → `user_impersonation`). Without this, Azure checks become SKIPs with a one-time "Grant Azure access" button surfaced inline in the results.
 8. Grant admin consent for the tenant.
@@ -46,6 +48,14 @@ You can also just double-click `index.html`, but using `http://localhost:5173` m
    - Append `?clientId=<guid>` to the page URL.
 
 Because the app is multi-tenant, the **first** user from each tenant must consent (Global Admin can grant org-wide).
+
+### Troubleshooting admin consent
+
+If a tester clicks **Grant admin consent** and the Microsoft page says *"lab checker agent needs admin approval"* (or *"needs admin approval in the lab checker…"*), it means the account that landed on the consent page **is not a Global Administrator of the tenant being checked**. Causes and fixes:
+
+- **Wrong account auto-selected.** The consent page now forces an account picker (`prompt=select_account`) — choose a Global Administrator of the tenant you're checking.
+- **Consent is pinned to your signed-in tenant.** Sign in to the Lab Check Bot first (step 2) with the target-tenant admin, *then* click Grant admin consent; the request is sent to that exact tenant, not the app's home tenant.
+- **The person isn't a Global Admin.** Only a Global Administrator can grant org-wide consent. Have a GA run the consent step once; afterwards every user in that tenant is covered.
 
 ## Deploy to GitHub Pages
 

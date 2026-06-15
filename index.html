@@ -114,6 +114,8 @@
     .pill.warn { background: rgba(240,180,41,0.15); color: var(--warn); border: 1px solid rgba(240,180,41,0.35); }
     .pill.fail { background: rgba(242,90,90,0.15); color: var(--fail); border: 1px solid rgba(242,90,90,0.35); }
     .pill.info { background: rgba(79,134,255,0.15); color: var(--accent-2); border: 1px solid rgba(79,134,255,0.35); }
+    .pill.notvalidated { background: rgba(160,170,190,0.16); color: #aeb6c7; border: 1px solid rgba(160,170,190,0.4); }
+    .pill.missing { background: rgba(214,120,40,0.16); color: #e0913f; border: 1px solid rgba(214,120,40,0.45); }
     .consent-card {
       margin-top: 14px;
       background: linear-gradient(180deg, rgba(79,134,255,0.10), rgba(79,134,255,0.04));
@@ -156,6 +158,13 @@
     .check:last-child { border-bottom: none; }
     .check .name { font-weight: 500; }
     .check .msg { grid-column: 2 / 4; color: var(--muted); font-size: 0.85rem; }
+    .check { align-items: start; }
+    .review { grid-column: 2 / 4; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .review .ln { font-size: 0.82rem; line-height: 1.4; color: var(--text); }
+    .review .ln .k { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.05em; margin-right: 6px; }
+    .review .ln.why { color: var(--muted); }
+    .review .ln.next { color: var(--accent-2); }
+    .review .ln.ref { color: var(--muted); font-style: italic; }
     .step-list { margin: 0; padding: 0; list-style: none; }
     .step-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
     .step-list li:last-child { border-bottom: none; }
@@ -191,7 +200,7 @@
     }
     .summary {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
       gap: 10px;
       margin-bottom: 12px;
     }
@@ -249,7 +258,7 @@
         <li><strong>First time in a tenant?</strong> Expand <em>"First time in this tenant? Grant admin consent"</em> and click <strong>🔓 Grant admin consent for this tenant</strong>. A GA accepts the read-only Graph permissions once per tenant; after that, every user in that tenant just signs in.</li>
         <li><strong>(Optional) Add platform tokens.</strong> If the lab uses <strong>GitHub</strong> or <strong>Azure DevOps</strong>, expand <em>"Optional: GitHub &amp; Azure DevOps access tokens"</em> and paste a PAT. For <strong>Azure resources</strong> (App Service, Storage, Key Vault, OpenAI, etc.), the bot uses your signed-in Microsoft identity — you'll see a one-time <strong>🔓 Grant Azure access</strong> button in the results if consent is needed.</li>
         <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals it touches (Copilot Studio, Intune, Entra, Azure, GitHub, Azure DevOps) and any named items (agents, pools, resources, repos), then queries each service to see what's already in place.</li>
-        <li><strong>Review results.</strong> Each row is <strong>PASS / WARN / FAIL / SKIP</strong>. For any FAIL or WARN, expand <strong>📖 What the lab says to do</strong> to see the exact lab step(s) you were supposed to complete.</li>
+        <li><strong>Review results.</strong> The bot acts like a security reviewer: every row shows <strong>PASS / FAIL / EXPECTED&nbsp;MISSING / WARN / NOT&nbsp;VALIDATED / SKIP</strong> plus what was checked, the evidence found, why it reached that conclusion, what to do next, and the lab step it maps to. <strong>NOT&nbsp;VALIDATED</strong> means the outcome lives somewhere the browser can't reach (on-prem AD, local audit policy, the Defender portal) — follow the manual verification steps shown.</li>
       </ol>
       <p class="muted" style="margin-top:10px;font-size:0.85rem;">
         Copilot Studio agent verification and Azure resource verification each require one extra one-time admin consent in the tenant.
@@ -448,14 +457,16 @@
       <h2>Results</h2>
       <div class="summary">
         <div class="cell"><div class="n" id="cnt-pass">0</div><div class="l">Passed</div></div>
-        <div class="cell"><div class="n" id="cnt-warn">0</div><div class="l">Warnings</div></div>
         <div class="cell"><div class="n" id="cnt-fail">0</div><div class="l">Failed</div></div>
+        <div class="cell"><div class="n" id="cnt-missing">0</div><div class="l">Expected&nbsp;missing</div></div>
+        <div class="cell"><div class="n" id="cnt-warn">0</div><div class="l">Warnings</div></div>
+        <div class="cell"><div class="n" id="cnt-notvalidated">0</div><div class="l">Not&nbsp;validated</div></div>
         <div class="cell"><div class="n" id="cnt-skip">0</div><div class="l">Skipped</div></div>
       </div>
       <div id="results-list"></div>
     </div>
   </main>
 
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>
