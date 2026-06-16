@@ -243,6 +243,7 @@
     }
     .example:hover { border-color: var(--accent); }
     .example .title { font-weight: 600; }
+    .lab-badge { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; vertical-align: middle; white-space: nowrap; }
     .example .url { color: var(--muted); font-size: 0.75rem; word-break: break-all; }
     .tab-bar { display: flex; gap: 6px; margin-top: 10px; }
     .tab-btn { padding: 5px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 0.85rem; font-weight: 600; }
@@ -306,62 +307,46 @@
         <!-- ABS -->
         <div id="tab-abs" class="tab-panel active">
           <div class="lab-list">
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL200-Copilot-and-agents-at-work"><span class="title">Copilot and agents at work</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/L400-Copilot-and-Agents-at-work"><span class="title">Copilot and Agents at work L400</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TW-L200-Creating-CUAs-with-Windows-365-for-Agents"><span class="title">Creating CUAs with Windows 365 for Agents</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Designing-your-own-copilot-using-copilot-studio"><span class="title">Designing your own copilot using Copilot Studio</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechBoost-Demonstrate-Copilot-Studios-Value-with-Agentic-Solutions"><span class="title">Demonstrate Copilot Studio's value with agentic solutions</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Elevate-your-Copilot-for-M365-technical-proficiency"><span class="title">Elevate your Copilot for M365 technical proficiency</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Elevate-your-Copilot-for-Microsoft-365-Technical-Proficiency-Interactive-Simulations"><span class="title">Elevate your Copilot for Microsoft 365 technical proficiency — interactive simulations</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-ERP-transformation-with-agents-for-Finance-and-Supply-Chain"><span class="title">ERP transformation with agents for Finance and Supply Chain</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Extending-Copilot-for-Microsoft365"><span class="title">Extending Copilot for Microsoft 365</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/Techworkshop-L300-Extending-M365"><span class="title">Extending M365</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/techworkshop-l400-innovate-with-low-code-and-ai-agents"><span class="title">Innovate with low code and AI agents</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Sales-Service-Transformation-MDX-Setup"><span class="title">Sales Service Transformation MDX setup</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TB-Copilot-Studio-for-STU"><span class="title">Copilot Studio for STU</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Case-Management-Agent"><span class="title">Case Management Agent</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Customer-Intent-Agent"><span class="title">Customer Intent Agent</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Knowledge-Management-Agent"><span class="title">Knowledge Management Agent</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Workforce-Management"><span class="title">Workforce Management</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL200-Copilot-and-agents-at-work"><span class="lab-badge">TW L200</span><span class="title">Copilot and agents at work</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/L400-Copilot-and-Agents-at-work"><span class="lab-badge">L400</span><span class="title">Copilot and Agents at work</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TW-L200-Creating-CUAs-with-Windows-365-for-Agents"><span class="lab-badge">TW L200</span><span class="title">Creating CUAs with Windows 365 for Agents</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Designing-your-own-copilot-using-copilot-studio"><span class="lab-badge">TechExcel</span><span class="title">Designing your own copilot using Copilot Studio</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechBoost-Demonstrate-Copilot-Studios-Value-with-Agentic-Solutions"><span class="lab-badge">TechBoost</span><span class="title">Demonstrate Copilot Studio's value with agentic solutions</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Elevate-your-Copilot-for-Microsoft-365-Technical-Proficiency-Interactive-Simulations"><span class="lab-badge">TechExcel</span><span class="title">Elevate your Copilot for Microsoft 365 technical proficiency — interactive simulations</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-ERP-transformation-with-agents-for-Finance-and-Supply-Chain"><span class="lab-badge">TW L300</span><span class="title">ERP transformation with agents for Finance and Supply Chain</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Extending-Copilot-for-Microsoft365"><span class="lab-badge">TechExcel</span><span class="title">Extending Copilot for Microsoft 365</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/Techworkshop-L300-Extending-M365"><span class="lab-badge">TW L300</span><span class="title">Extending M365</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/techworkshop-l400-innovate-with-low-code-and-ai-agents"><span class="lab-badge">TW L400</span><span class="title">Innovate with low code and AI agents</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Sales-Service-Transformation-MDX-Setup"><span class="lab-badge">TW L300</span><span class="title">Sales Service Transformation MDX setup</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TB-Copilot-Studio-for-STU"><span class="lab-badge">TechBoost</span><span class="title">Copilot Studio for STU</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Case-Management-Agent"><span class="lab-badge">TW L400</span><span class="title">Case Management Agent</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Customer-Intent-Agent"><span class="lab-badge">TW L400</span><span class="title">Customer Intent Agent</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Knowledge-Management-Agent"><span class="lab-badge">TW L400</span><span class="title">Knowledge Management Agent</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL400-Workforce-Management"><span class="lab-badge">TW L400</span><span class="title">Workforce Management</span></button>
           </div>
         </div>
 
         <!-- CAIP -->
         <div id="tab-caip" class="tab-panel">
           <div class="lab-list">
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-AI-Apps-and-agents"><span class="title">AI Apps and agents</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-Fabric-w-Databricks-for-Data-Analytics"><span class="title">Fabric with Databricks for Data Analytics L300</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Fabric-with-Databricks-for-Data-Analytics"><span class="title">Fabric with Databricks for Data Analytics TWL300</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-GitHub-Copilot-and-platform"><span class="title">GitHub Copilot and platform</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Implementing-automation-practices-using-Azure-OpenAI"><span class="title">Implementing automation practices using Azure OpenAI</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Implementing-DevOps-practices-to-accelerate-developer-productivity"><span class="title">Implementing DevOps practices to accelerate developer productivity</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Implementing-DevOps-practices-to-accelerate-developer-productivity-code"><span class="title">Implementing DevOps practices to accelerate developer productivity — code</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Integrating-Azure-PaaS-and-AI-Services-for-AI-Design-Wins"><span class="title">Integrating Azure PaaS and AI Services for AI Design Wins</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Innovate-with-Azure-AI-Infra-Ready"><span class="title">Innovate with Azure AI Infra Ready</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Modernize-applications-to-be-AI-ready"><span class="title">Modernize applications to be AI-ready</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-Migrate-Linux-PostgreSQL-workloads"><span class="title">Migrate Linux PostgreSQL workloads</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Migrate-Linux-workloads"><span class="title">Migrate Linux workloads</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Migrate-SAP-RISE-to-Azure"><span class="title">Migrate SAP RISE to Azure</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Operationalize-LLMs-with-LLMOps-automation"><span class="title">Operationalize LLMs with LLMOps automation</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/techworkshop-L300-secure-workload-migration-to-azure-windows-server---sql-server"><span class="title">Secure workload migration to Azure — Windows Server and SQL Server</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Securely-migrate-Windows-Server-and-SQL-Server-workloads-to-Azure"><span class="title">Securely migrate Windows Server and SQL Server workloads to Azure</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Transform-Data-and-AI-solutions-with-Azure-AI-Platform"><span class="title">Transform Data and AI solutions with Azure AI Platform</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Win-the-Database-Platform"><span class="title">Win the Database Platform</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Win-the-Database-Platform-PostgresSQLAI"><span class="title">Win the Database Platform — PostgreSQL AI</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-AI-Apps-and-agents"><span class="lab-badge">TW L300</span><span class="title">AI Apps and agents</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-Fabric-w-Databricks-for-Data-Analytics"><span class="lab-badge">TW L300</span><span class="title">Fabric with Databricks for Data Analytics</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Fabric-with-Databricks-for-Data-Analytics"><span class="lab-badge">TW L300</span><span class="title">Fabric with Databricks for Data Analytics (alt)</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-L300-GitHub-Copilot-and-platform"><span class="lab-badge">TW L300</span><span class="title">GitHub Copilot and platform</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechWorkshop-Migrate-Linux-PostgreSQL-workloads"><span class="lab-badge">TechWorkshop</span><span class="title">Migrate Linux PostgreSQL workloads</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/techworkshop-L300-secure-workload-migration-to-azure-windows-server---sql-server"><span class="lab-badge">TW L300</span><span class="title">Secure workload migration to Azure — Windows Server and SQL Server</span></button>
           </div>
         </div>
 
         <!-- Security -->
         <div id="tab-security" class="tab-panel">
           <div class="lab-list">
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Defender-for-Identity"><span class="title">Defender for Identity</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Overcoming-data-security-deployment-issues"><span class="title">Overcoming data security deployment issues</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Secure-and-Govern-M365-Copilot-and-Agents"><span class="title">Secure and Govern M365 Copilot and Agents</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Secure-and-Govern-M365-Copilot-and-Agents-Sims"><span class="title">Secure and Govern M365 Copilot and Agents — simulations</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Sentinel-onboarding-and-migration-acceleration"><span class="title">Sentinel onboarding and migration acceleration</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Understanding-Sentinel-Datalake-and-Graph"><span class="title">Understanding Sentinel Datalake and Graph</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Understanding-XDR"><span class="title">Understanding XDR</span></button>
-            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-XDR-SOC-Operations"><span class="title">XDR SOC Operations</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Overcoming-data-security-deployment-issues"><span class="lab-badge">TechExcel</span><span class="title">Overcoming data security deployment issues</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Secure-and-Govern-M365-Copilot-and-Agents"><span class="lab-badge">TechExcel</span><span class="title">Secure and Govern M365 Copilot and Agents</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TechExcel-Secure-and-Govern-M365-Copilot-and-Agents-Sims"><span class="lab-badge">TechExcel</span><span class="title">Secure and Govern M365 Copilot and Agents — simulations</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Understanding-Sentinel-Datalake-and-Graph"><span class="lab-badge">TW L300</span><span class="title">Understanding Sentinel Datalake and Graph</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-Understanding-XDR"><span class="lab-badge">TW L300</span><span class="title">Understanding XDR</span></button>
+            <button class="example lab-item" data-url="https://github.com/microsoft/TWL300-XDR-SOC-Operations"><span class="lab-badge">TW L300</span><span class="title">XDR SOC Operations</span></button>
           </div>
         </div>
       </div>
