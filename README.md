@@ -51,11 +51,14 @@ Because the app is multi-tenant, the **first** user from each tenant must consen
 
 ### Troubleshooting admin consent
 
-If a tester clicks **Grant admin consent** and the Microsoft page says *"lab checker agent needs admin approval"* (or *"needs admin approval in the lab checker…"*), it means the account that landed on the consent page **is not a Global Administrator of the tenant being checked**. Causes and fixes:
+Sign-in itself only requests `User.Read`, so **authenticating never hits the admin-approval wall** — any user can sign in. The admin-only Graph permissions are granted once per tenant via the **Grant admin consent** step.
 
-- **Wrong account auto-selected.** The consent page now forces an account picker (`prompt=select_account`) — choose a Global Administrator of the tenant you're checking.
+If the Microsoft page says *"lab checker agent needs permission to access resources in your organization that only an admin can grant"* / *"Need admin approval"*, it means admin consent hasn't been granted for that tenant yet **and** the account that hit the page isn't a Global Administrator. Causes and fixes:
+
+- **The person isn't a Global Admin.** Only a Global Administrator can grant org-wide consent. Have a GA sign in and click **Grant admin consent** once; afterwards every user in that tenant is covered and can sign in normally.
+- **Wrong account auto-selected.** The consent page forces an account picker (`prompt=select_account`) — choose a Global Administrator of the tenant you're checking.
 - **Consent is pinned to your signed-in tenant.** Sign in to the Lab Check Bot first (step 2) with the target-tenant admin, *then* click Grant admin consent; the request is sent to that exact tenant, not the app's home tenant.
-- **The person isn't a Global Admin.** Only a Global Administrator can grant org-wide consent. Have a GA run the consent step once; afterwards every user in that tenant is covered.
+- **Tenant blocks all user consent.** A few tenants require admin approval even for `User.Read`. In that case a GA must approve the app (or run the consent step) before anyone can sign in — this is a tenant policy outside the tool's control.
 
 ## Deploy to GitHub Pages
 

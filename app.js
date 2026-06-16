@@ -37,6 +37,14 @@
     "SecurityIdentitiesSensors.Read.All",
   ];
 
+  // Scopes requested at *sign-in* only. We deliberately ask for just User.Read
+  // (user-consentable in any tenant) so authentication NEVER hits the admin
+  // "Need admin approval" wall. The admin-only scopes in GRAPH_SCOPES are
+  // granted separately and once-per-tenant via the "Grant admin consent"
+  // button; afterwards graphGet acquires them silently with .default.
+  const LOGIN_SCOPES = ["User.Read"];
+
+
   // Dataverse discovery scope. Requires Dynamics CRM → user_impersonation
   // delegated permission on the app reg + admin consent. We never auto-redirect
   // for this — silent first, popup on user click only.
@@ -645,13 +653,13 @@
 
   async function signIn() {
     const inst = await getMsal();
-    await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account" });
+    await inst.loginRedirect({ scopes: LOGIN_SCOPES, prompt: "select_account" });
   }
 
   async function switchTenant() {
     const inst = await getMsal();
     inst.setActiveAccount(null);
-    await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account" });
+    await inst.loginRedirect({ scopes: LOGIN_SCOPES, prompt: "select_account" });
   }
 
   function signOut() {
@@ -2779,7 +2787,7 @@
           try { sessionStorage.removeItem("labCheckBot.autoSignInAfterLogout"); } catch { /* ignore */ }
           try {
             const inst = await getMsal();
-            await inst.loginRedirect({ scopes: GRAPH_SCOPES, prompt: "select_account" });
+            await inst.loginRedirect({ scopes: LOGIN_SCOPES, prompt: "select_account" });
             return;
           } catch (e) {
             showError("Auto re-sign in failed: " + (e.message || e));
@@ -2809,8 +2817,37 @@
         try { await switchTenant(); } catch (e) { showError("Switch tenant: " + (e.message || e)); }
       });
     }
+    maybeWarnCorpTenant(account, tenant);
     // Check consent status now that we have an account.
     refreshConsentStatus({ force: false });
+  }
+
+  // The Microsoft corporate tenant. Signing in here is the #1 tester mistake:
+  // it's almost never the tenant the lab was deployed to, the tester isn't a
+  // Global Admin of it, and its consent policy will block the app anyway.
+  const MICROSOFT_CORP_TENANT_ID = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+
+  function maybeWarnCorpTenant(account, tenantDomain) {
+    const el = $("tenant-warning");
+    if (!el) return;
+    const tid =
+      (account && (account.tenantId || (account.idTokenClaims && account.idTokenClaims.tid))) || "";
+    const domain = (tenantDomain || "").toLowerCase();
+    const isCorp =
+      tid === MICROSOFT_CORP_TENANT_ID ||
+      domain === "microsoft.com" ||
+      domain === "microsoft.onmicrosoft.com";
+    if (!isCorp) {
+      el.classList.add("hidden");
+      el.innerHTML = "";
+      return;
+    }
+    el.innerHTML =
+      `<span class="tenant-warning-title">⚠️ You're signed into the Microsoft corporate tenant</span>` +
+      `An <strong>@microsoft.com</strong> account checks the Microsoft production tenant — <strong>not</strong> the demo/CDX tenant where your lab was deployed. ` +
+      `The lab's resources won't be there, you almost certainly aren't a Global Admin of it, and corporate consent policy will block the app. ` +
+      `Click <strong>switch tenant</strong> above and sign in with the lab's demo-tenant admin account (for example <code>admin@&lt;tenant&gt;.onmicrosoft.com</code>).`;
+    el.classList.remove("hidden");
   }
 
   // ──────────────────────────────────────────────────────────────────────────
