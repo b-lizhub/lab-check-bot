@@ -294,7 +294,12 @@
 
   const PORTAL_PATTERNS = [
     { name: "Copilot Studio", patterns: [/copilot\s*studio/i], urlPatterns: [/copilotstudio\.microsoft\.com/i] },
-    { name: "Power Platform Admin", patterns: [/power\s*platform\s*admin/i, /power\s*automate/i], urlPatterns: [/admin\.powerplatform/i] },
+    { name: "Power Platform Admin", patterns: [
+        /power\s*platform\s*admin\s*center/i,
+        /open\s+power\s*platform/i, /sign\s+in\s+to\s+power\s*platform/i,
+        /navigate\s+to\s+(?:power\s*platform|admin\.powerplatform)/i,
+        /power\s*automate\s+(?:portal|flow|cloud\s*flow)/i,
+      ], urlPatterns: [/admin\.powerplatform/i, /make\.powerautomate\.com/i] },
     { name: "Microsoft Entra", patterns: [/microsoft\s*entra/i, /aad|azure\s*ad\b/i], urlPatterns: [/entra\.microsoft\.com/i] },
     { name: "Microsoft Defender for Identity", patterns: [
         /defender\s*for\s*identity/i, /\bMDI\b/, /azure\s*atp/i,
@@ -303,7 +308,12 @@
       ] },
     { name: "Microsoft Sentinel", patterns: [/microsoft\s*sentinel/i, /azure\s*sentinel/i, /sentinel2go/i, /securityinsights/i] },
     { name: "Microsoft Defender XDR", patterns: [/defender\s*xdr/i, /microsoft\s*365\s*defender/i], urlPatterns: [/security\.microsoft\.com/i] },
-    { name: "Microsoft Intune", patterns: [/intune/i] },
+    { name: "Microsoft Intune", patterns: [
+        /microsoft\s*intune/i, /intune\s*admin\s*center/i,
+        /device\s*compliance\s*policy/i, /configuration\s*profile/i,
+        /app\s*protection\s*policy/i, /enroll\s+(?:a\s+)?device\s+in\s+intune/i,
+        /navigate\s+to\s+intune/i, /open\s+intune/i,
+      ], urlPatterns: [/intune\.microsoft\.com/i] },
     { name: "Azure Portal", patterns: [
         /azure\s*portal/i, /resource\s*group/i,
         /app\s*service/i, /container\s*app/i, /function\s*app/i,
@@ -311,9 +321,22 @@
         /key\s*vault/i, /ai\s*foundry/i, /azure\s*openai/i,
         /log\s*analytics/i, /application\s*insights/i, /\baz\s+\w+/i,
       ], urlPatterns: [/portal\.azure\.com/i] },
-    { name: "Microsoft 365 Admin", patterns: [/microsoft\s*365\s*admin/i], urlPatterns: [/admin\.microsoft\.com/i] },
-    { name: "SharePoint", patterns: [/sharepoint/i] },
-    { name: "Teams Admin", patterns: [/teams\s*admin/i] },
+    { name: "Microsoft 365 Admin", patterns: [
+        /microsoft\s*365\s*admin\s*center/i,
+        /open\s+(?:the\s+)?microsoft\s*365\s*admin/i,
+        /sign\s+in\s+to\s+(?:the\s+)?microsoft\s*365\s*admin/i,
+        /navigate\s+to\s+admin\.microsoft\.com/i,
+      ], urlPatterns: [/admin\.microsoft\.com/i] },
+    { name: "SharePoint", patterns: [
+        /sharepoint\s*online/i, /sharepoint\s*admin\s*center/i,
+        /sharepoint\s*site/i, /document\s*library/i,
+        /navigate\s+to\s+sharepoint/i, /open\s+sharepoint/i,
+      ], urlPatterns: [/\.sharepoint\.com/i] },
+    { name: "Teams Admin", patterns: [
+        /teams\s*admin\s*center/i,
+        /open\s+teams\s*admin/i, /sign\s+in\s+to\s+teams\s*admin/i,
+        /navigate\s+to\s+teams\s*admin/i,
+      ], urlPatterns: [/admin\.teams\.microsoft\.com/i] },
     { name: "GitHub", patterns: [
         /github\s*enterprise/i, /github\s*copilot/i, /github\s*actions/i,
         /github\s*(?:workflow|runner)/i,
