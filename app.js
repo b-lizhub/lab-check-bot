@@ -2471,16 +2471,9 @@
     const ado = lab.names.ado || {};
     const az = lab.names.azure || {};
 
-    const needsGitHub =
-      portals.includes("GitHub") ||
-      (gh.repos && gh.repos.length > 0) ||
-      (gh.workflows && gh.workflows.length > 0);
+    const needsGitHub = portals.includes("GitHub");
 
-    const needsAdo =
-      portals.includes("Azure DevOps") ||
-      (ado.orgs && ado.orgs.length > 0) ||
-      (ado.projects && ado.projects.length > 0) ||
-      (ado.pipelines && ado.pipelines.length > 0);
+    const needsAdo = portals.includes("Azure DevOps");
 
     const needsAzure =
       portals.includes("Azure Portal") ||
