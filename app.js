@@ -321,8 +321,12 @@
         /\.github\/workflows\//i,
       ] },
     { name: "Azure DevOps", patterns: [
-        /azure\s*devops/i, /\bdev\.azure\.com\b/i, /\bvisualstudio\.com\b/i,
-        /\bado\b/i, /azure\s*pipelines?/i, /azure\s*boards?/i, /azure\s*repos?/i,
+        /\bdev\.azure\.com\b/i, /\bvisualstudio\.com\b/i,
+        /azure\s*pipelines?\s+(?:run|trigger|create|edit|deploy|build)/i,
+        /azure\s*(?:boards?|repos?)\s+(?:create|clone|push|commit|work\s*item)/i,
+        /(?:create|configure|set\s*up|import)\s+(?:an?\s+)?azure\s*devops/i,
+        /open\s+azure\s*devops/i, /sign\s+in\s+to\s+azure\s*devops/i,
+        /navigate\s+to\s+(?:azure\s*devops|dev\.azure\.com)/i,
       ] },
   ];
 
