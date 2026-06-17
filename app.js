@@ -2461,6 +2461,75 @@
       li.innerHTML = `<span class="text">${escape(s)}</span>`;
       list.appendChild(li);
     });
+
+    updateTokenPanel(lab);
+  }
+
+  function updateTokenPanel(lab) {
+    const portals = lab.portals || [];
+    const gh = lab.names.github || {};
+    const ado = lab.names.ado || {};
+    const az = lab.names.azure || {};
+
+    const needsGitHub =
+      portals.includes("GitHub") ||
+      (gh.repos && gh.repos.length > 0) ||
+      (gh.workflows && gh.workflows.length > 0);
+
+    const needsAdo =
+      portals.includes("Azure DevOps") ||
+      (ado.orgs && ado.orgs.length > 0) ||
+      (ado.projects && ado.projects.length > 0) ||
+      (ado.pipelines && ado.pipelines.length > 0);
+
+    const needsAzure =
+      portals.includes("Azure Portal") ||
+      Object.values(az).some((v) => v && v.length > 0);
+
+    // Update per-section badges
+    const setBadge = (id, needed) => {
+      const el = $(id);
+      if (!el) return;
+      if (needed) {
+        el.textContent = "Required";
+        el.style.background = "rgba(255,160,60,0.18)";
+        el.style.borderColor = "rgba(242,140,30,0.6)";
+        el.style.color = "var(--text)";
+      } else {
+        el.textContent = "Not applicable";
+        el.style.background = "";
+        el.style.borderColor = "";
+        el.style.color = "var(--muted)";
+      }
+    };
+    setBadge("pat-github-badge", needsGitHub);
+    setBadge("pat-ado-badge", needsAdo);
+
+    // Update panel-level summary badge + auto-open/close
+    const panelBadge = $("pat-panel-badge");
+    const panel = $("pat-panel");
+    if (needsGitHub || needsAdo) {
+      const parts = [];
+      if (needsGitHub) parts.push("GitHub");
+      if (needsAdo) parts.push("Azure DevOps");
+      panelBadge.textContent = `Required — ${parts.join(" & ")}`;
+      panelBadge.style.background = "rgba(255,160,60,0.18)";
+      panelBadge.style.borderColor = "rgba(242,140,30,0.6)";
+      panelBadge.style.color = "var(--text)";
+      panel.open = true;
+    } else {
+      panelBadge.textContent = "Not applicable for this lab";
+      panelBadge.style.background = "";
+      panelBadge.style.borderColor = "";
+      panelBadge.style.color = "var(--muted)";
+      panel.open = false;
+    }
+
+    // Dim not-applicable sections
+    const ghSection = $("pat-github-section");
+    const adoSection = $("pat-ado-section");
+    if (ghSection) ghSection.style.opacity = needsGitHub ? "" : "0.45";
+    if (adoSection) adoSection.style.opacity = needsAdo ? "" : "0.45";
   }
 
   function renderResults(results) {

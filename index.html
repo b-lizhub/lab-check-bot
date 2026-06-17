@@ -380,8 +380,8 @@
       </div>
 
       <details id="pat-panel" style="margin-top: 14px;">
-        <summary style="cursor: pointer; font-weight: 600;">
-          Optional: GitHub &amp; Azure DevOps access tokens
+        <summary id="pat-panel-summary" style="cursor: pointer; font-weight: 600;">
+          GitHub &amp; Azure DevOps access tokens <span id="pat-panel-badge" class="lab-badge" style="margin-left:6px;">Optional</span>
         </summary>
         <div style="margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);">
           <p class="muted" style="margin-top: 0;">
@@ -390,8 +390,8 @@
             browser's localStorage only and are <strong>never</strong> sent anywhere except the matching service.
           </p>
 
-          <div style="margin-top: 12px;">
-            <label for="pat-github" style="font-weight: 600;">GitHub PAT</label>
+          <div id="pat-github-section" style="margin-top: 12px;">
+            <label for="pat-github" style="font-weight: 600;">GitHub PAT <span id="pat-github-badge" class="lab-badge"></span></label>
             <div class="muted" style="font-size: 0.85rem; margin: 2px 0 6px;">
               Recommended scopes: <code>repo</code>, <code>read:org</code>, <code>workflow</code>.
               Create one at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.
@@ -405,8 +405,8 @@
             </div>
           </div>
 
-          <div style="margin-top: 14px;">
-            <label for="pat-ado" style="font-weight: 600;">Azure DevOps PAT</label>
+          <div id="pat-ado-section" style="margin-top: 14px;">
+            <label for="pat-ado" style="font-weight: 600;">Azure DevOps PAT <span id="pat-ado-badge" class="lab-badge"></span></label>
             <div class="muted" style="font-size: 0.85rem; margin: 2px 0 6px;">
               Recommended scopes: <em>Project &amp; Team (Read)</em>, <em>Code (Read)</em>, <em>Build (Read)</em>.
               Create one at <a href="https://dev.azure.com/" target="_blank" rel="noopener"><code>https://dev.azure.com/&lt;your-org&gt;/_usersSettings/tokens</code></a> (replace <code>&lt;your-org&gt;</code>), or see <a href="https://learn.microsoft.com/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noopener">Azure DevOps PAT docs</a>.
@@ -468,6 +468,6 @@
     </div>
   </main>
 
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>
