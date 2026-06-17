@@ -316,8 +316,9 @@
     { name: "Teams Admin", patterns: [/teams\s*admin/i] },
     { name: "GitHub", patterns: [
         /github\s*enterprise/i, /github\s*copilot/i, /github\s*actions/i,
-        /\bgithub\.com\b/i, /\bgh\s+(?:auth|repo|workflow|run)\b/i,
-        /personal\s*access\s*token/i, /\bpat\b/i,
+        /github\s*(?:repo|repository|organization|org|team|issue|pull\s*request|pr|workflow|runner|branch|fork|commit|gist)/i,
+        /\bgh\s+(?:auth|repo|workflow|run)\b/i,
+        /\.github\/workflows\//i,
       ] },
     { name: "Azure DevOps", patterns: [
         /azure\s*devops/i, /\bdev\.azure\.com\b/i, /\bvisualstudio\.com\b/i,
