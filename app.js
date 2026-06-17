@@ -293,47 +293,48 @@
   // ──────────────────────────────────────────────────────────────────────────
 
   const PORTAL_PATTERNS = [
-    { name: "Copilot Studio", patterns: [/copilot\s*studio/i, /copilotstudio\.microsoft\.com/i] },
-    { name: "Power Platform Admin", patterns: [/power\s*platform\s*admin/i, /admin\.powerplatform/i, /power\s*automate/i] },
-    { name: "Microsoft Entra", patterns: [/microsoft\s*entra/i, /entra\.microsoft\.com/i, /aad|azure\s*ad\b/i] },
+    { name: "Copilot Studio", patterns: [/copilot\s*studio/i], urlPatterns: [/copilotstudio\.microsoft\.com/i] },
+    { name: "Power Platform Admin", patterns: [/power\s*platform\s*admin/i, /power\s*automate/i], urlPatterns: [/admin\.powerplatform/i] },
+    { name: "Microsoft Entra", patterns: [/microsoft\s*entra/i, /aad|azure\s*ad\b/i], urlPatterns: [/entra\.microsoft\.com/i] },
     { name: "Microsoft Defender for Identity", patterns: [
         /defender\s*for\s*identity/i, /\bMDI\b/, /azure\s*atp/i,
         /Set-MDIConfiguration/i, /New-MDIConfigurationReport/i, /DefenderForIdentity/i,
         /sensor\s*(?:health|deployment|setup)/i, /honeytoken/i, /gMSA/i,
       ] },
     { name: "Microsoft Sentinel", patterns: [/microsoft\s*sentinel/i, /azure\s*sentinel/i, /sentinel2go/i, /securityinsights/i] },
-    { name: "Microsoft Defender XDR", patterns: [/defender\s*xdr/i, /microsoft\s*365\s*defender/i, /security\.microsoft\.com/i] },
+    { name: "Microsoft Defender XDR", patterns: [/defender\s*xdr/i, /microsoft\s*365\s*defender/i], urlPatterns: [/security\.microsoft\.com/i] },
     { name: "Microsoft Intune", patterns: [/intune/i] },
     { name: "Azure Portal", patterns: [
-        /azure\s*portal/i, /portal\.azure\.com/i, /resource\s*group/i,
+        /azure\s*portal/i, /resource\s*group/i,
         /app\s*service/i, /container\s*app/i, /function\s*app/i,
         /azure\s*sql/i, /cosmos\s*db/i, /storage\s*account/i,
         /key\s*vault/i, /ai\s*foundry/i, /azure\s*openai/i,
         /log\s*analytics/i, /application\s*insights/i, /\baz\s+\w+/i,
-      ] },
-    { name: "Microsoft 365 Admin", patterns: [/microsoft\s*365\s*admin/i, /admin\.microsoft\.com/i] },
+      ], urlPatterns: [/portal\.azure\.com/i] },
+    { name: "Microsoft 365 Admin", patterns: [/microsoft\s*365\s*admin/i], urlPatterns: [/admin\.microsoft\.com/i] },
     { name: "SharePoint", patterns: [/sharepoint/i] },
     { name: "Teams Admin", patterns: [/teams\s*admin/i] },
     { name: "GitHub", patterns: [
         /github\s*enterprise/i, /github\s*copilot/i, /github\s*actions/i,
         /github\s*(?:workflow|runner)/i,
         /\bgh\s+(?:auth|repo|workflow|run)\b/i,
-        /\.github\/workflows\//i,
-      ] },
+      ], urlPatterns: [/\.github\/workflows\//i] },
     { name: "Azure DevOps", patterns: [
-        /\bdev\.azure\.com\b/i, /\bvisualstudio\.com\b/i,
         /azure\s*pipelines?\s+(?:run|trigger|create|edit|deploy|build)/i,
         /azure\s*(?:boards?|repos?)\s+(?:create|clone|push|commit|work\s*item)/i,
         /(?:create|configure|set\s*up|import)\s+(?:an?\s+)?azure\s*devops/i,
         /open\s+azure\s*devops/i, /sign\s+in\s+to\s+azure\s*devops/i,
         /navigate\s+to\s+(?:azure\s*devops|dev\.azure\.com)/i,
-      ] },
+        ], urlPatterns: [/\bdev\.azure\.com\b/i] },
   ];
 
-  function detectPortals(text) {
+  function detectPortals(text, stepText) {
     const found = new Set();
-    for (const { name, patterns } of PORTAL_PATTERNS) {
-      if (patterns.some((p) => p.test(text))) found.add(name);
+    const operationalText = stepText || text;
+    for (const { name, patterns, urlPatterns } of PORTAL_PATTERNS) {
+      const matchedOperational = patterns && patterns.some((p) => p.test(operationalText));
+      const matchedUrl = urlPatterns && urlPatterns.some((p) => p.test(text));
+      if (matchedOperational || matchedUrl) found.add(name);
     }
     return Array.from(found);
   }
@@ -595,7 +596,8 @@
       .join("\n\n");
 
     const steps = extractSteps(combined);
-    const portals = detectPortals(combined);
+    const stepText = steps.join("\n");
+    const portals = detectPortals(combined, stepText);
     const agentsRaw = extractMatches(combined, AGENT_PATTERNS);
     const poolsRaw = extractMatches(combined, POOL_PATTERNS);
 
