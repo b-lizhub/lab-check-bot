@@ -316,7 +316,7 @@
     { name: "Teams Admin", patterns: [/teams\s*admin/i] },
     { name: "GitHub", patterns: [
         /github\s*enterprise/i, /github\s*copilot/i, /github\s*actions/i,
-        /github\s*(?:repo|repository|organization|org|team|issue|pull\s*request|pr|workflow|runner|branch|fork|commit|gist)/i,
+        /github\s*(?:workflow|runner)/i,
         /\bgh\s+(?:auth|repo|workflow|run)\b/i,
         /\.github\/workflows\//i,
       ] },
