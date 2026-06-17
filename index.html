@@ -269,16 +269,17 @@
     <details class="panel" style="margin-bottom: 16px;">
       <summary style="cursor:pointer;font-weight:600;font-size:1.05rem;">How to use this tool</summary>
       <ol style="margin-top:10px;line-height:1.5;">
-        <li><strong>Paste a GitHub lab URL.</strong> Anything works: a repo root, a <code>/tree/main/docs/...</code> folder, a single <code>.md</code> file, or a published GitHub Pages site (<code>*.github.io/...</code>).</li>
+        <li><strong>Choose a lab or paste a GitHub lab URL.</strong> You can pick a lab from the solution-area menu, or paste a repo root, a <code>/tree/main/docs/...</code> folder, a single <code>.md</code> file, or a published GitHub Pages site (<code>*.github.io/...</code>).</li>
+        <li><strong>Load the lab and review the detected requirements.</strong> After the lab loads, the bot updates the sign-in area to show which extra platform inputs are <strong>Required</strong> and which are <strong>Not applicable</strong> for that specific lab.</li>
         <li><strong>Sign in with a Global Administrator account</strong> in the tenant you want to check. All checks run in your browser — no data leaves your machine.</li>
         <li><strong>First time in a tenant?</strong> Expand <em>"First time in this tenant? Grant admin consent"</em> and click <strong>🔓 Grant admin consent for this tenant</strong>. A GA accepts the read-only Graph permissions once per tenant; after that, every user in that tenant just signs in.</li>
-        <li><strong>(Optional) Add platform tokens.</strong> If the lab uses <strong>GitHub</strong> or <strong>Azure DevOps</strong>, expand <em>"Optional: GitHub &amp; Azure DevOps access tokens"</em> and paste a PAT. For <strong>Azure resources</strong> (App Service, Storage, Key Vault, OpenAI, etc.), the bot uses your signed-in Microsoft identity — you'll see a one-time <strong>🔓 Grant Azure access</strong> button in the results if consent is needed.</li>
-        <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals it touches (Copilot Studio, Intune, Entra, Azure, GitHub, Azure DevOps) and any named items (agents, pools, resources, repos), then queries each service to see what's already in place.</li>
+        <li><strong>Add only the platform tokens the loaded lab requires.</strong> If the lab needs <strong>GitHub</strong> or <strong>Azure DevOps</strong>, the PAT panel will mark that input as <strong>Required</strong>. If the lab does not use that platform, it will show <strong>Not applicable</strong>. For <strong>Azure resources</strong> (App Service, Storage, Key Vault, OpenAI, etc.), the bot uses your signed-in Microsoft identity — you'll see a one-time <strong>🔓 Grant Azure access</strong> button in the results if consent is needed.</li>
+        <li><strong>Click "▶ Run checks."</strong> The bot reads the lab markdown, detects the portals and named resources it needs to verify, then queries each reachable service to see what's already in place.</li>
         <li><strong>Review results.</strong> The bot acts like a security reviewer: every row shows <strong>PASS / FAIL / EXPECTED&nbsp;MISSING / WARN / NOT&nbsp;VALIDATED / SKIP</strong> plus what was checked, the evidence found, why it reached that conclusion, what to do next, and the lab step it maps to. <strong>NOT&nbsp;VALIDATED</strong> means the outcome lives somewhere the browser can't reach (on-prem AD, local audit policy, the Defender portal) — follow the manual verification steps shown.</li>
       </ol>
       <p class="muted" style="margin-top:10px;font-size:0.85rem;">
         Copilot Studio agent verification and Azure resource verification each require one extra one-time admin consent in the tenant.
-        GitHub and Azure DevOps checks use Personal Access Tokens that stay in your browser's localStorage.
+        GitHub and Azure DevOps checks use Personal Access Tokens that stay in your browser's localStorage, and the bot now marks them per lab as required or not applicable.
         The lab text never leaves your browser; the bot only calls <code>api.github.com</code>, <code>raw.githubusercontent.com</code>, <code>graph.microsoft.com</code>, <code>management.azure.com</code>, <code>dev.azure.com</code>, and (optionally) Dataverse for your tenant.
       </p>
     </details>
